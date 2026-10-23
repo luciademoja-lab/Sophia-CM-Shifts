@@ -16,8 +16,15 @@ create table if not exists auth.users (
   email text unique,
   raw_user_meta_data jsonb not null default '{}',
   raw_app_meta_data jsonb not null default '{}',
+  encrypted_password text,
+  email_confirmed_at timestamptz,
+  updated_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+-- Supabase keeps pgcrypto in the "extensions" schema.
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
 
 -- Same contract as Supabase: the signed-in user id comes from the JWT claims.
 create or replace function auth.uid() returns uuid

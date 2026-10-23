@@ -32,6 +32,8 @@ RCMshifts/
 ├── vite.config.ts  vitest.config.ts  tsconfig.json  vercel.json
 ```
 
+Changing a password from the database: in the Supabase SQL editor run `select set_password('ladmin', 'new-password-2026');` (works for any username, RCMs included). Admins can also reset passwords from the app (*Team > Reset password*).
+
 How sign-in works: Supabase Auth needs an email, so each username maps to an internal address `username@rcm.vikstudios.com`. No email is ever sent; RCMs only ever see their username. Public sign-up is disabled.
 
 ## Run it locally
@@ -63,7 +65,7 @@ VITE_SUPABASE_URL=http://127.0.0.1:54321
 VITE_SUPABASE_ANON_KEY=<anon key>
 ```
 
-Create the first admins: open Studio (http://127.0.0.1:54323) > Authentication > Add user, emails `lucia@rcm.vikstudios.com` and `aram@rcm.vikstudios.com`, tick *Auto confirm*. Then run `backend/supabase/bootstrap_admins.sql` in the SQL editor. Restart `npm run dev` and sign in as `lucia`.
+Create the first admins: open Studio (http://127.0.0.1:54323) > Authentication > Add user, emails `ladmin@rcm.vikstudios.com` (Lucia) and `aadmin@rcm.vikstudios.com` (Aram), tick *Auto Confirm User*. Then run `backend/supabase/bootstrap_admins.sql` in the SQL editor, with your own passwords. Restart `npm run dev` and sign in as `ladmin`.
 
 ### All tests
 
