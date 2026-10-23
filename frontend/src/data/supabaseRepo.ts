@@ -14,7 +14,7 @@ type ShiftRow = { id: string; owner: string; starts_at: string; ends_at: string;
 type LogRow = { id: number; at: string; actor: string; owner: string; action: LogEntry['action']; starts_at: string | null; ends_at: string | null; from_owner: string | null; shift_id: string | null };
 type ReportRow = { shift_id: string; owner: string; worked_minutes: number; notes: string; work_types: WorkType[] | null; posters: string | null; updated_at: string; updated_by: string | null };
 type ReportTaskRow = { shift_id: string; task_id: string; owner: string; minutes: number };
-type TaskRow = { id: string; title: string; description: string; priority: Task['priority']; estimate_minutes: number; created_by: string | null; created_at: string };
+type TaskRow = { id: string; title: string; description: string; priority: Task['priority']; estimate_minutes: number; grabs_for: Task['grabsFor']; created_by: string | null; created_at: string };
 type AssigneeRow = { task_id: string; person: string; status: Task['assignees'][number]['status']; done_at: string | null; updated_at: string };
 type TaskLogRow = { id: number; at: string; actor: string | null; task_id: string | null; title: string; person: string | null; action: TaskEvent['action']; status: TaskEvent['status'] };
 type WeeklyRow = { id: string; owner: string; week: string; worked_minutes: number; message: string; status: WeeklyReport['status']; submitted_at: string; decided_by: string | null; decided_at: string | null };
@@ -85,7 +85,7 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
         sb.from('availability_days').select('owner, day, slots').gte('day', new Date(from - 2 * 86_400_000).toISOString().slice(0, 10)).lte('day', new Date(to + 2 * 86_400_000).toISOString().slice(0, 10)),
         sb.from('notification_seen').select('seen_at').maybeSingle(),
         sb.from('shifts').select('id, owner, starts_at, ends_at, status, covers_id').eq('status', 'pending').order('starts_at'),
-        sb.from('tasks').select('id, title, description, priority, estimate_minutes, created_by, created_at').order('created_at'),
+        sb.from('tasks').select('id, title, description, priority, estimate_minutes, grabs_for, created_by, created_at').order('created_at'),
         sb.from('task_assignees').select('task_id, person, status, done_at, updated_at'),
         sb.from('task_log').select('id, at, actor, task_id, title, person, action, status').order('at', { ascending: false }).limit(100),
         sb.from('report_tasks').select('shift_id, task_id, owner, minutes'),
@@ -118,7 +118,7 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
       }
       const assignees = check(ta) as AssigneeRow[];
       const tasks: Task[] = (check(tk) as TaskRow[]).map((t) => ({
-        id: t.id, title: t.title, description: t.description, priority: t.priority, estimateMinutes: t.estimate_minutes,
+        id: t.id, title: t.title, description: t.description, priority: t.priority, estimateMinutes: t.estimate_minutes, grabsFor: t.grabs_for || 'rcm',
         createdBy: t.created_by, createdAt: Date.parse(t.created_at),
         assignees: assignees.filter((a) => a.task_id === t.id).map((a) => ({ person: a.person, status: a.status, doneAt: a.done_at ? Date.parse(a.done_at) : null, updatedAt: Date.parse(a.updated_at) })),
       }));
@@ -164,10 +164,10 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
     async approveWeekly(id) { check(await sb.rpc('approve_weekly', { p_id: id })); },
     async rejectWeekly(id) { check(await sb.rpc('reject_weekly', { p_id: id })); },
     async createTask(t, people) {
-      return check(await sb.rpc('create_task', { p_title: t.title, p_description: t.description, p_priority: t.priority, p_estimate: t.estimateMinutes, p_people: people })) as string;
+      return check(await sb.rpc('create_task', { p_title: t.title, p_description: t.description, p_priority: t.priority, p_estimate: t.estimateMinutes, p_people: people, p_grabs_for: t.grabsFor ?? null })) as string;
     },
     async updateTask(id, t, people) {
-      check(await sb.rpc('update_task', { p_id: id, p_title: t.title, p_description: t.description, p_priority: t.priority, p_estimate: t.estimateMinutes, p_people: people }));
+      check(await sb.rpc('update_task', { p_id: id, p_title: t.title, p_description: t.description, p_priority: t.priority, p_estimate: t.estimateMinutes, p_people: people, p_grabs_for: t.grabsFor ?? null }));
     },
     async deleteTask(id) { check(await sb.rpc('delete_task', { p_id: id })); },
     async moveTask(id, person, status) { check(await sb.rpc('move_task', { p_id: id, p_person: person, p_status: status })); },

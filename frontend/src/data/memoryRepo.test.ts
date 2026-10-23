@@ -299,7 +299,10 @@ describe('memoryRepo: reports, weekly reports and tasks', () => {
   it('runs tasks: visibility, per-person status, claiming and admin-only log', async () => {
     const shared = await repo.createTask(task, [ids.regina, ids.kris]);
     await repo.createTask({ ...task, title: 'Admin' }, [ids.lucia]);
-    const free = await repo.createTask({ ...task, title: 'Free' }, []);
+    expect(await code(repo.createTask({ ...task, title: 'Free' }, []))).toBe('invalid'); // must say RCMs or admins
+    const free = await repo.createTask({ ...task, title: 'Free', grabsFor: 'rcm' }, []);
+    const forAdmins = await repo.createTask({ ...task, title: 'For admins', grabsFor: 'admin' }, []);
+    expect(await code(repo.claimTask(free))).toBe('forbidden'); // admins take admin tasks only
     expect(await code(repo.createTask({ ...task, estimateMinutes: 0 }, []))).toBe('invalid');
     await as('regina');
     expect((await snap()).tasks.map((t) => t.title).sort()).toEqual(['Clean Zone B', 'Free']);
@@ -310,6 +313,7 @@ describe('memoryRepo: reports, weekly reports and tasks', () => {
     expect((await snap()).taskLog).toEqual([]);
     await as('kris');
     expect(await code(repo.claimTask(free))).toBe('invalid');
+    expect(await code(repo.claimTask(forAdmins))).toBe('not_found');
     await as('max');
     expect((await snap()).tasks).toEqual([]);
     await as('lucia');
@@ -317,7 +321,9 @@ describe('memoryRepo: reports, weekly reports and tasks', () => {
     const sh = s.tasks.find((t) => t.id === shared)!;
     expect(sh.assignees.map((a) => [a.person === ids.regina ? 'regina' : 'kris', a.status])).toEqual([['regina', 'done'], ['kris', 'todo']]);
     expect(sh.assignees[0].doneAt).toBe(clock);
-    expect(s.taskLog.map((e) => e.action)).toEqual(['created', 'created', 'created', 'moved', 'claimed']);
+    expect(s.taskLog.map((e) => e.action)).toEqual(['created', 'created', 'created', 'created', 'moved', 'claimed']);
+    await repo.claimTask(forAdmins);
+    expect((await snap()).tasks.find((t) => t.id === forAdmins)!.assignees[0].person).toBe(ids.lucia);
     await repo.updateTask(shared, { ...task, priority: 'urgent' }, [ids.regina]);
     expect((await snap()).tasks.find((t) => t.id === shared)!.assignees).toMatchObject([{ person: ids.regina, status: 'done' }]);
     await repo.deleteTask(shared);

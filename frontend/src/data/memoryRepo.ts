@@ -10,7 +10,7 @@ import { normalizeUsername, validatePassword, validateUsername } from '../../../
 import { RepoError, type NewLogin, type Repo, type Snapshot } from './repo';
 
 export type SeedUser = { username: string; fullName: string; role: Role; password: string; timezone?: string | null; availability?: CoverageDays };
-export type SeedTask = { title: string; description?: string; priority: Task['priority']; estimateMinutes: number; assignees: string[] };
+export type SeedTask = { title: string; description?: string; priority: Task['priority']; estimateMinutes: number; assignees: string[]; grabsFor?: Task['grabsFor'] };
 export type Seed = {
   users: SeedUser[]; now?: () => number; coverage?: Coverage | null;
   shifts?: Array<{ owner: string; start: number; end: number; status?: 'booked' | 'open' }>;
@@ -55,7 +55,7 @@ export function createMemoryRepo(seed: Seed): Repo {
   for (const t of seed.tasks || []) {
     tasks.push({
       id: newId('t'), title: t.title, description: t.description || '', priority: t.priority, estimateMinutes: t.estimateMinutes,
-      createdBy: lucia?.id ?? null, createdAt: now(),
+      grabsFor: t.grabsFor || 'rcm', createdBy: lucia?.id ?? null, createdAt: now(),
       assignees: t.assignees.map((u) => byUsername(u)).filter((p): p is Profile => !!p).map((p) => ({ person: p.id, status: 'todo', doneAt: null, updatedAt: now() })),
     });
   }
@@ -293,10 +293,11 @@ export function createMemoryRepo(seed: Seed): Repo {
 
     async createTask(input, people) {
       const p = admin('Only admins can create tasks.');
-      const err = validateTask(input); if (err) fail('invalid', err);
+      const err = validateTask(input, people); if (err) fail('invalid', err);
       const list = checkPeople(people);
       const t: Task = {
         id: newId('t'), title: input.title.trim(), description: input.description.trim(), priority: input.priority, estimateMinutes: input.estimateMinutes,
+        grabsFor: input.grabsFor || 'rcm',
         createdBy: p.id, createdAt: now(), assignees: list.map((person) => ({ person, status: 'todo', doneAt: null, updatedAt: now() })),
       };
       tasks.push(t); taskEvent(p.id, t, 'created'); changed();
@@ -305,9 +306,9 @@ export function createMemoryRepo(seed: Seed): Repo {
     async updateTask(id, input, people) {
       const p = admin('Only admins can change tasks.');
       const t = tasks.find((x) => x.id === id); if (!t) return fail('not_found', 'That task no longer exists.');
-      const err = validateTask(input); if (err) fail('invalid', err);
+      const err = validateTask({ ...input, grabsFor: input.grabsFor || t.grabsFor }, people); if (err) fail('invalid', err);
       const list = checkPeople(people);
-      Object.assign(t, { title: input.title.trim(), description: input.description.trim(), priority: input.priority, estimateMinutes: input.estimateMinutes });
+      Object.assign(t, { title: input.title.trim(), description: input.description.trim(), priority: input.priority, estimateMinutes: input.estimateMinutes, grabsFor: input.grabsFor || t.grabsFor });
       t.assignees = list.map((person) => t.assignees.find((a) => a.person === person) || { person, status: 'todo', doneAt: null, updatedAt: now() });
       taskEvent(p.id, t, 'edited'); changed();
     },
@@ -332,8 +333,9 @@ export function createMemoryRepo(seed: Seed): Repo {
     },
     async claimTask(id) {
       const p = writer();
-      if (p.role !== 'rcm') fail('forbidden', 'Admins assign tasks from the task editor.');
-      const t = tasks.find((x) => x.id === id); if (!t) return fail('not_found', 'That task no longer exists.');
+      const t = tasks.find((x) => x.id === id);
+      if (!t || (p.role === 'rcm' && t.grabsFor !== 'rcm')) return fail('not_found', 'That task no longer exists.');
+      if ((p.role === 'rcm') !== (t.grabsFor === 'rcm')) fail('forbidden', 'This task is up for grabs for RCMs.');
       if (t.assignees.length) fail('invalid', 'Someone already took this task.');
       t.assignees.push({ person: p.id, status: 'todo', doneAt: null, updatedAt: now() });
       taskEvent(p.id, t, 'claimed', p.id, 'todo'); changed();

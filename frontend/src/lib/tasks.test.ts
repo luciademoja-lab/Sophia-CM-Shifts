@@ -7,7 +7,7 @@ const lucia = prof('lucia', 'admin'), regina = prof('regina', 'rcm'), max = prof
 
 const H = 3_600_000;
 const task = (id: string, assignees: Array<[string, 'todo' | 'in_progress' | 'done', number?]>, extra: Partial<Task> = {}): Task => ({
-  id, title: id, description: '', priority: 'normal', estimateMinutes: 60, createdBy: 'lucia', createdAt: 0,
+  id, title: id, description: '', priority: 'normal', estimateMinutes: 60, grabsFor: 'rcm', createdBy: 'lucia', createdAt: 0,
   assignees: assignees.map(([person, status, doneAt]) => ({ person, status, doneAt: doneAt ?? null, updatedAt: 0 })), ...extra,
 });
 
@@ -18,6 +18,12 @@ describe('validateTask', () => {
     expect(validateTask({ title: 'x', description: '', priority: 'high', estimateMinutes: 0 })).toMatch(/estimated time/);
     expect(validateTask({ title: 'x', description: '', priority: 'high', estimateMinutes: 90 })).toBeNull();
   });
+  it('asks who can grab a task created without assignees', () => {
+    const t = { title: 'x', description: '', priority: 'high' as const, estimateMinutes: 90 };
+    expect(validateTask({ ...t, grabsFor: null }, [])).toMatch(/up for grabs/);
+    expect(validateTask({ ...t, grabsFor: 'admin' }, [])).toBeNull();
+    expect(validateTask({ ...t, grabsFor: null }, ['regina'])).toBeNull();
+  });
 });
 
 describe('who sees which task', () => {
@@ -26,11 +32,12 @@ describe('who sees which task', () => {
   const adminOnly = task('admin', [['lucia', 'todo']]);
   const shared = task('shared', [['lucia', 'todo'], ['regina', 'in_progress']]);
   const grab = task('grab', []);
+  const adminGrab = task('admin grab', [], { grabsFor: 'admin' });
   it('shows admins every task', () => {
-    expect([mine, krisOnly, adminOnly, shared, grab].every((t) => canSeeTask(t, lucia))).toBe(true);
+    expect([mine, krisOnly, adminOnly, shared, grab, adminGrab].every((t) => canSeeTask(t, lucia))).toBe(true);
   });
   it("shows RCMs their own tasks and the ones up for grabs, never admins' or colleagues'", () => {
-    expect([mine, krisOnly, adminOnly, shared, grab].filter((t) => canSeeTask(t, regina)).map((t) => t.id)).toEqual(['mine', 'shared', 'grab']);
+    expect([mine, krisOnly, adminOnly, shared, grab, adminGrab].filter((t) => canSeeTask(t, regina)).map((t) => t.id)).toEqual(['mine', 'shared', 'grab']);
   });
   it('hides tasks from viewers', () => {
     expect(canSeeTask(grab, max)).toBe(false);
@@ -92,6 +99,13 @@ describe('estimated vs actual time', () => {
     expect(s.people.kris).toEqual({ tasks: 1, estimate: 60, actual: 45, avgDiffPct: -25 });
     expect(s.team).toEqual({ tasks: 3, estimate: 240, actual: 195, avgDiffPct: -8 });
     expect(estimateStats(tasks, rows, 4.5 * H, 10 * H).team.tasks).toBe(1);
+  });
+
+  it('can leave admins out of the speed metrics', () => {
+    const tasks = [task('a', [['regina', 'done', 3 * H], ['lucia', 'done', 4 * H]], { estimateMinutes: 60 })];
+    const s = estimateStats(tasks, rows, 0, 10 * H, (id) => id !== 'lucia');
+    expect(s.team.tasks).toBe(1);
+    expect(s.people.lucia).toBeUndefined();
   });
 
   it('counts tasks completed in a week, per person and for the whole team', () => {

@@ -18,11 +18,14 @@ export type Task = {
   priority: Priority;
   /** estimated time for each assignee */
   estimateMinutes: number;
+  /** who can take it while nobody is assigned */
+  grabsFor: GrabsFor;
   createdBy: string | null;
   createdAt: number;
   assignees: Assignment[];
 };
-export type TaskInput = { title: string; description: string; priority: Priority; estimateMinutes: number };
+export type GrabsFor = 'rcm' | 'admin';
+export type TaskInput = { title: string; description: string; priority: Priority; estimateMinutes: number; grabsFor?: GrabsFor | null };
 export type TaskEvent = {
   id: string; at: number; actor: string | null; taskId: string | null; title: string;
   person: string | null; action: 'created' | 'edited' | 'deleted' | 'claimed' | 'moved'; status: TaskStatus | null;
@@ -30,7 +33,8 @@ export type TaskEvent = {
 /** Time a person linked to a task in their shift reports. */
 export type TaskTimeRow = { taskId: string; person: string; minutes: number };
 
-export function validateTask(t: TaskInput): string | null {
+export function validateTask(t: TaskInput, people?: string[]): string | null {
+  if (people && !people.length && !t.grabsFor) return 'Choose whether this task is up for grabs for RCMs or for admins.';
   if (!t.title.trim()) return 'Give the task a title.';
   if (t.title.length > 200) return 'The title is too long.';
   if (t.description.length > 4000) return 'The description is too long.';
@@ -44,7 +48,7 @@ export function canSeeTask(t: Task, me: Profile | null): boolean {
   if (!me || !me.active) return false;
   if (me.role === 'admin') return true;
   if (me.role !== 'rcm') return false;
-  return !t.assignees.length || t.assignees.some((a) => a.person === me.id);
+  return t.assignees.some((a) => a.person === me.id) || (!t.assignees.length && t.grabsFor === 'rcm');
 }
 
 export type Card = { task: Task; person: string | null; status: TaskStatus | 'grabs'; doneAt: number | null };
@@ -99,12 +103,12 @@ export function actualMinutes(rows: TaskTimeRow[], taskId: string, person: strin
 
 export type EstimateLine = { tasks: number; estimate: number; actual: number; avgDiffPct: number };
 
-/** Completed assignments (done in [from, to)): estimated vs reported time, per person and team. */
-export function estimateStats(tasks: Task[], rows: TaskTimeRow[], from: number, to: number): { team: EstimateLine; people: Record<string, EstimateLine> } {
+/** Completed assignments (done in [from, to), people passing `include`): estimated vs reported time, per person and team. */
+export function estimateStats(tasks: Task[], rows: TaskTimeRow[], from: number, to: number, include: (person: string) => boolean = () => true): { team: EstimateLine; people: Record<string, EstimateLine> } {
   const acc = new Map<string, { tasks: number; estimate: number; actual: number; pct: number }>();
   const team = { tasks: 0, estimate: 0, actual: 0, pct: 0 };
   for (const t of tasks) for (const a of t.assignees) {
-    if (a.status !== 'done' || a.doneAt == null || a.doneAt < from || a.doneAt >= to) continue;
+    if (a.status !== 'done' || a.doneAt == null || a.doneAt < from || a.doneAt >= to || !include(a.person)) continue;
     const actual = actualMinutes(rows, t.id, a.person);
     const pct = ((actual - t.estimateMinutes) / t.estimateMinutes) * 100;
     const p = acc.get(a.person) || { tasks: 0, estimate: 0, actual: 0, pct: 0 };

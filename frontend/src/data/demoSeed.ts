@@ -29,6 +29,7 @@ export function demoSeed(now: number): Seed {
       { title: 'Check new OS accounts', priority: 'normal', estimateMinutes: 60, assignees: ['regina', 'kris'] },
       { title: 'Welcome message for Zone C', priority: 'normal', estimateMinutes: 45, assignees: ['rana'] },
       { title: 'Update the pinned links in #managers-hq', priority: 'low', estimateMinutes: 30, assignees: [] },
+      { title: 'Review the Upwork message templates', priority: 'normal', estimateMinutes: 60, assignees: [], grabsFor: 'admin' },
       { title: 'Plan December hiring targets', priority: 'urgent', estimateMinutes: 180, assignees: ['lucia'] },
     ],
     shifts: [

@@ -3,7 +3,7 @@ import { uncoveredRuns, type Coverage, type Interval } from '../lib/coverage';
 import { activeShifts, canChange, personColor, type Profile, type Shift } from '../lib/shifts';
 import { DAYS, addDays, dayHours, minuteOfDay, wallSpan, dateOf, dayStartMs, hm, minLabel, rangeLabel, sameDate, tzLabel, zonedToUtc, type PlainDate } from '../lib/time';
 
-const ROW = 11, SLOTS = 96;
+const ROW = 22, SLOTS = 96;
 
 export type NewShiftRequest = { newStart: number; newMinutes: number };
 

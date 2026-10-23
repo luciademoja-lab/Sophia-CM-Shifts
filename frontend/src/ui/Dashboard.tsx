@@ -15,11 +15,15 @@ const pct = (n: number) => (n > 0 ? `+${n}%` : `${n}%`);
 export function Dashboard({ profiles, tasks, taskTime, weeklyReports, mon, w0, w1 }: Props) {
   const [scope, setScope] = useState<'week' | 'all'>('week');
   const rcms = Object.values(profiles).filter((p) => p.active && p.role === 'rcm').sort((a, b) => a.fullName.localeCompare(b.fullName));
-  const stats = scope === 'week' ? estimateStats(tasks, taskTime, w0, w1) : estimateStats(tasks, taskTime, 0, Number.MAX_SAFE_INTEGER);
+  // speed metrics are about RCMs only: tasks completed by admins are left out
+  const isRcm = (id: string) => profiles[id]?.role === 'rcm';
+  const stats = scope === 'week' ? estimateStats(tasks, taskTime, w0, w1, isRcm) : estimateStats(tasks, taskTime, 0, Number.MAX_SAFE_INTEGER, isRcm);
   const done = completedCounts(tasks, w0, w1);
+  const byRcms = Object.entries(done.people).filter(([id]) => isRcm(id)).reduce((m, [, n]) => m + n, 0);
+  const byAdmins = Object.entries(done.people).filter(([id]) => profiles[id]?.role === 'admin').reduce((m, [, n]) => m + n, 0);
   const empty: EstimateLine = { tasks: 0, estimate: 0, actual: 0, avgDiffPct: 0 };
   const rows: Array<{ id: string; name: string; line: EstimateLine; team?: boolean }> = [
-    { id: 'team', name: 'Team average', line: stats.team, team: true },
+    { id: 'team', name: 'RCM average', line: stats.team, team: true },
     ...rcms.map((p) => ({ id: p.id, name: p.fullName, line: stats.people[p.id] || empty })),
   ];
   // average hours per completed task, so the team row and each RCM share one scale
@@ -32,8 +36,10 @@ export function Dashboard({ profiles, tasks, taskTime, weeklyReports, mon, w0, w
   return (
     <section className="dashboard viz-root">
       <div className="nums">
-        <div className="panel stat-tile"><span className="eyebrow">Tasks completed this week (whole team)</span><b data-testid="done-total">{done.total}</b><span className="sub">{week}, admins included</span></div>
-        <div className="panel stat-tile"><span className="eyebrow">Team vs estimate ({scope === 'week' ? 'this week' : 'all time'})</span><b>{stats.team.tasks ? pct(stats.team.avgDiffPct) : '–'}</b><span className="sub">{stats.team.tasks ? `average over ${stats.team.tasks} completed task${stats.team.tasks > 1 ? 's' : ''}` : 'no completed tasks yet'}</span></div>
+        <div className="panel stat-tile"><span className="eyebrow">Completed by the whole team</span><b data-testid="done-total">{done.total}</b><span className="sub">{week}</span></div>
+        <div className="panel stat-tile"><span className="eyebrow">Completed by RCMs</span><b data-testid="done-rcms">{byRcms}</b><span className="sub">{week}</span></div>
+        <div className="panel stat-tile"><span className="eyebrow">Completed by admins</span><b data-testid="done-admins">{byAdmins}</b><span className="sub">{week} · not counted in the speed metrics</span></div>
+        <div className="panel stat-tile"><span className="eyebrow">RCMs vs estimate ({scope === 'week' ? 'this week' : 'all time'})</span><b>{stats.team.tasks ? pct(stats.team.avgDiffPct) : '–'}</b><span className="sub">{stats.team.tasks ? `average over ${stats.team.tasks} completed task${stats.team.tasks > 1 ? 's' : ''}` : 'no completed tasks yet'}</span></div>
       </div>
 
       <div className="panel">
@@ -60,7 +66,7 @@ export function Dashboard({ profiles, tasks, taskTime, weeklyReports, mon, w0, w
             );
           })}
         </div>
-        <p className="note">Average time per completed task. Logged time comes from the tasks linked in shift reports; the percentage is the average difference from the estimate (over 0% = took longer).</p>
+        <p className="note">RCMs only: tasks completed by admins are not counted here. Average time per completed task; logged time comes from the tasks linked in shift reports, and the percentage is the average difference from the estimate (over 0% = took longer).</p>
       </div>
 
       <div className="panel">

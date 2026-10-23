@@ -19,8 +19,8 @@ describe('tasks', () => {
   beforeEach(() => db.exec('super', 'delete from task_log; delete from tasks;'));
 
   const arr = (ids: string[]) => `array[${ids.map((i) => `'${i}'`).join(',')}]::uuid[]`;
-  const create = (as: string, title: string, people: string[] = [], priority = 'normal', estimate = 60) =>
-    db.value<string>({ id: as }, `select create_task('${title}', '', '${priority}', ${estimate}, ${arr(people)})`);
+  const create = (as: string, title: string, people: string[] = [], priority = 'normal', estimate = 60, grabsFor: string | null = 'rcm') =>
+    db.value<string>({ id: as }, `select create_task('${title}', '', '${priority}', ${estimate}, ${arr(people)}, ${grabsFor ? `'${grabsFor}'` : 'null'})`);
   const move = (as: string, id: string, status: string, person: string | null = null) =>
     db.exec({ id: as }, `select move_task('${id}', ${person ? `'${person}'` : 'null'}, '${status}')`);
   const visible = (as: string) => db.rows<{ title: string }>({ id: as }, 'select title from tasks order by title').map((r) => r.title);
@@ -43,8 +43,9 @@ describe('tasks', () => {
     create(lucia, 'c admin', [aram]);
     create(lucia, 'd shared', [aram, regina]);
     create(lucia, 'e grabs');
+    create(lucia, 'f admin grabs', [], 'normal', 60, 'admin');
     expect(visible(regina)).toEqual(['a regina', 'd shared', 'e grabs']);
-    expect(visible(lucia)).toEqual(['a regina', 'b kris', 'c admin', 'd shared', 'e grabs']);
+    expect(visible(lucia)).toEqual(['a regina', 'b kris', 'c admin', 'd shared', 'e grabs', 'f admin grabs']);
     expect(visible(max)).toEqual([]);
     expect(db.rows({ id: regina }, 'select distinct person from task_assignees')).toEqual([{ person: regina }]); // never other people's cards
   });
@@ -63,6 +64,20 @@ describe('tasks', () => {
     expect(failure(() => move(max, id, 'done', regina))).toMatch(/RCM_FORBIDDEN/);
   });
 
+  it('needs to know who can grab a task without assignees', () => {
+    expect(failure(() => create(lucia, 'Nobody', [], 'normal', 60, null))).toMatch(/RCM_INVALID: .*up for grabs/);
+    expect(() => create(lucia, 'Assigned', [regina], 'normal', 60, null)).not.toThrow();
+  });
+
+  it('lets admins grab the admin tasks, and RCMs only the RCM ones', () => {
+    const forAdmins = create(lucia, 'For admins', [], 'normal', 60, 'admin');
+    expect(failure(() => db.exec({ id: regina }, `select claim_task('${forAdmins}')`))).toMatch(/RCM_NOT_FOUND|RCM_FORBIDDEN/);
+    db.exec({ id: aram }, `select claim_task('${forAdmins}')`);
+    expect(assignment(forAdmins, aram)).toEqual({ status: 'todo', done: false });
+    const forRcms = create(lucia, 'For RCMs');
+    expect(failure(() => db.exec({ id: aram }, `select claim_task('${forRcms}')`))).toMatch(/RCM_FORBIDDEN/);
+  });
+
   it('lets an RCM claim a task up for grabs with one click, only once', () => {
     const id = create(lucia, 'Free');
     db.exec({ id: regina }, `select claim_task('${id}')`);
@@ -74,12 +89,12 @@ describe('tasks', () => {
   it('lets admins edit and reassign, keeping the status of people who stay', () => {
     const id = create(lucia, 'Edit me', [regina, kris]);
     move(regina, id, 'in_progress');
-    db.exec({ id: lucia }, `select update_task('${id}', 'Edited', 'more', 'urgent', 120, ${arr([regina, aram])})`);
+    db.exec({ id: lucia }, `select update_task('${id}', 'Edited', 'more', 'urgent', 120, ${arr([regina, aram])}, null)`);
     expect(db.rows('super', `select title, priority, estimate_minutes from tasks`)).toEqual([{ title: 'Edited', priority: 'urgent', estimate_minutes: 120 }]);
     expect(assignment(id, regina)).toEqual({ status: 'in_progress', done: false });
     expect(assignment(id, aram)).toEqual({ status: 'todo', done: false });
     expect(assignment(id, kris)).toBeUndefined();
-    expect(failure(() => db.exec({ id: regina }, `select update_task('${id}', 'x', '', 'low', 60, ${arr([regina])})`))).toMatch(/RCM_FORBIDDEN/);
+    expect(failure(() => db.exec({ id: regina }, `select update_task('${id}', 'x', '', 'low', 60, ${arr([regina])}, null)`))).toMatch(/RCM_FORBIDDEN/);
     expect(failure(() => db.exec({ id: regina }, `select delete_task('${id}')`))).toMatch(/RCM_FORBIDDEN/);
     db.exec({ id: lucia }, `select delete_task('${id}')`);
     expect(visible(lucia)).toEqual([]);

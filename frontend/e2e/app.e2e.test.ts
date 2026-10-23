@@ -50,6 +50,14 @@ async function signIn(username: string, password = PASSWORD) {
 
 const text = (sel: string) => page.locator(sel).allInnerTexts();
 
+const R = 22; // px per 15-minute row
+/** Scrolls the calendar so `hour` is in view and returns the point of day column `day` at hour:minutes. */
+async function slot(day: number, hour: number, minutes = 0) {
+  await page.locator('.boardwrap').evaluate((el, top) => { el.scrollIntoView({ block: 'start' }); el.scrollTop = top; }, Math.max(0, (hour - 1) * R * 4));
+  const box = (await page.locator('.col').nth(day).boundingBox())!;
+  return { x: box.x + 20, y: box.y + R * 4 * hour + R * (minutes / 15) + 2 };
+}
+
 describe('logins made by us', () => {
   it('signs in with a username and password', async () => {
     await signIn('lucia');
@@ -325,6 +333,8 @@ describe('tasks', () => {
     await page.getByRole('button', { name: 'Dashboard' }).click();
     expect(await page.getByTestId('done-total').innerText()).toBe('1');
     expect(await page.getByTestId('done-regina').innerText()).toBe('1');
+    expect(await page.getByTestId('done-rcms').innerText()).toBe('1');
+    expect(await page.getByTestId('done-admins').innerText()).toBe('0');
     await page.getByRole('button', { name: /^Notifications/ }).click();
     await page.getByText('Regina Nemeth took “Update the pinned links in #managers-hq” from the tasks up for grabs').waitFor();
   });
@@ -351,6 +361,33 @@ describe('tasks', () => {
     const card = page.getByRole('list', { name: 'To do' }).getByTestId('task-card').filter({ hasText: 'Review Zone A guide' });
     expect(await card.innerText()).toContain('URGENT');
     expect(await card.innerText()).toContain('Est. 2h 30m');
+  });
+
+  it('asks whether a task without assignees is up for grabs for RCMs or admins', async () => {
+    await signIn('lucia');
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+    const grabs = page.getByRole('list', { name: 'Up for grabs' });
+    expect(await grabs.getByText('For admins').count()).toBe(1); // demo admin task
+    await page.getByRole('button', { name: 'New task' }).click();
+    await page.getByLabel('Title').fill('Check the bot answers');
+    await page.getByRole('button', { name: 'Create task' }).click();
+    await page.getByText('Choose whether this task is up for grabs for RCMs or for admins.').waitFor();
+    await page.getByLabel(/^Admins/).check();
+    await page.getByRole('button', { name: 'Create task' }).click();
+    await grabs.getByTestId('task-card').filter({ hasText: 'Check the bot answers' }).getByRole('button', { name: 'Take it' }).click();
+    await page.getByRole('list', { name: 'To do' }).getByText('Check the bot answers').waitFor();
+    await page.getByLabel('Move Check the bot answers for Lucia De Mojà').selectOption('done');
+    await page.getByRole('button', { name: 'Dashboard' }).click();
+    await page.getByTestId('done-admins').filter({ hasText: /^1$/ }).waitFor();
+    expect(await page.getByTestId('done-total').innerText()).toBe('1');
+    expect(await page.getByTestId('done-rcms').innerText()).toBe('0');
+    expect(await page.locator('.barrow.team').innerText()).toContain('no completed tasks'); // admins left out of speed
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('regina');
+    await page.getByRole('button', { name: 'My tasks' }).click();
+    const titles = await page.getByTestId('task-card').allInnerTexts();
+    expect(titles.some((t) => t.includes('Review the Upwork message templates'))).toBe(false);
+    expect(titles.some((t) => t.includes('Update the pinned links'))).toBe(true);
   });
 
   it('shows the RCM role page to RCMs only', async () => {
@@ -396,13 +433,10 @@ describe('availability and assigning shifts', () => {
   async function requestAsRana() {
     await signIn('rana');
     await page.getByRole('button', { name: 'Next week' }).click();
-    const col = page.locator('.col').nth(3);
-    await page.locator('.boardwrap').evaluate((el) => el.scrollIntoView({ block: 'start' }));
-    const box = (await col.boundingBox())!;
-    const y = box.y + 11 * 4 * 9 + 2; // 09:00 Istanbul, before Rana's 15:00 start
-    await page.mouse.move(box.x + 20, y);
+    const { x, y } = await slot(3, 9); // 09:00 Istanbul, before Rana's 15:00 start
+    await page.mouse.move(x, y);
     await page.mouse.down();
-    await page.mouse.move(box.x + 20, y + 11 * 4, { steps: 2 });
+    await page.mouse.move(x, y + R * 4, { steps: 2 });
     await page.mouse.up();
     await page.getByTestId('availability-warning').waitFor();
     await page.getByTestId('request-warning').waitFor();
@@ -451,11 +485,8 @@ describe('availability and assigning shifts', () => {
     await signIn('lucia');
     await page.locator('.lane').first().waitFor();
     expect(await page.locator('#view-pick option').allInnerTexts()).toEqual(["Admin view: everyone's availability", 'Kris Arévalo', 'Olizhia Mairuhu', 'Rana Barakli', 'Regina Nemeth']);
-    await page.locator('.boardwrap').evaluate((el) => { el.scrollIntoView({ block: 'start' }); el.scrollTop = 11 * 4 * 14; }); // show the afternoon and evening
-    const col = page.locator('.col').nth(4);
-    await page.locator('.boardwrap').evaluate((el) => el.scrollIntoView({ block: 'start' }));
-    const box = (await col.boundingBox())!;
-    await page.mouse.click(box.x + 60, box.y + 11 * 4 * 20 + 2); // Friday 20:00 Rome
+    const p = await slot(4, 20); // Friday 20:00 Rome
+    await page.mouse.click(p.x + 40, p.y);
     expect(await page.getByLabel('RCM').locator('option').allInnerTexts()).toContain('🔴 Regina Nemeth');
     await page.getByLabel('RCM').selectOption({ label: '🔴 Regina Nemeth' });
     await page.getByText("Outside Regina Nemeth's availability. You can still assign it.").waitFor();
@@ -536,10 +567,8 @@ describe('live updates and time zones', () => {
   it('clears the notification dot once the panel is opened, even with requests still waiting', async () => {
     await signIn('rana');
     await page.getByRole('button', { name: 'Next week' }).click();
-    const col = page.locator('.col').nth(3);
-    await page.locator('.boardwrap').evaluate((el) => el.scrollIntoView({ block: 'start' }));
-    const box = (await col.boundingBox())!;
-    await page.mouse.click(box.x + 20, box.y + 11 * 4 * 9 + 2); // 09:00 Istanbul: outside Rana's hours
+    const p = await slot(3, 9); // 09:00 Istanbul: outside Rana's hours
+    await page.mouse.click(p.x, p.y);
     await page.getByRole('button', { name: 'Send request' }).click();
     await page.getByTestId('overlay').waitFor({ state: 'hidden' });
     await page.getByRole('button', { name: 'Sign out' }).click();
@@ -578,13 +607,10 @@ describe('booking (unchanged from the original board)', () => {
   it('books availability by dragging on the grid', async () => {
     await signIn('rana');
     const before = await page.locator('.shift').count();
-    const col = page.locator('.col').nth(3);
-    await page.locator('.boardwrap').evaluate((el) => el.scrollIntoView({ block: 'start' }));
-    const box = (await col.boundingBox())!;
-    const y = box.y + 11 * 4 * 16 + 2; // 16:00 Istanbul, inside Rana's availability (15–21)
-    await page.mouse.move(box.x + 20, y);
+    const { x, y } = await slot(3, 16); // 16:00 Istanbul, inside Rana's availability (15–21)
+    await page.mouse.move(x, y);
     await page.mouse.down();
-    await page.mouse.move(box.x + 20, y + 11 * 8, { steps: 4 }); // two hours
+    await page.mouse.move(x, y + R * 8, { steps: 4 }); // two hours
     await page.mouse.up();
     await page.getByRole('button', { name: 'Book shift' }).click();
     await page.getByTestId('overlay').waitFor({ state: 'hidden' });
@@ -596,10 +622,8 @@ describe('booking (unchanged from the original board)', () => {
   it('refuses a second RCM in the same slot', async () => {
     await signIn('rana');
     await page.locator('.shift', { hasText: 'Regina Nemeth' }).first().waitFor();
-    const col = page.locator('.col').nth(0);
-    await page.locator('.boardwrap').evaluate((el) => el.scrollIntoView({ block: 'start' }));
-    const box = (await col.boundingBox())!;
-    await page.mouse.move(box.x + 20, box.y + 11 * 4 * 8 + 22); // 08:30 Istanbul, inside Regina's shift
+    const p = await slot(0, 8, 30); // 08:30 Istanbul, inside Regina's shift
+    await page.mouse.move(p.x, p.y);
     await page.mouse.down();
     await page.mouse.up();
     // the click lands on Regina's 07:00–13:00 Monday shift, which opens it read-only for Rana

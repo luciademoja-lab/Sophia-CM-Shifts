@@ -3,7 +3,7 @@ import type { Repo } from '../data/repo';
 import type { Profile } from '../lib/shifts';
 import {
   PRIORITIES, PRIORITY_LABEL, STATUS_LABEL, actualMinutes, canMove, column, pageOf, taskCards, validateTask,
-  type Card, type Priority, type Task, type TaskStatus, type TaskTimeRow,
+  type Card, type GrabsFor, type Priority, type Task, type TaskStatus, type TaskTimeRow,
 } from '../lib/tasks';
 import { dur, shortDate, dateOf } from '../lib/time';
 import { errorText } from './errors';
@@ -23,7 +23,6 @@ export function TasksPage({ repo, me, profiles, tasks, taskTime, tz }: Props) {
   const [over, setOver] = useState<TaskStatus | null>(null);
   const people = Object.values(profiles).filter((p) => p.active && p.role !== 'viewer').sort((a, b) => a.fullName.localeCompare(b.fullName));
   const cards = taskCards(tasks, me, isAdmin && person ? person : null);
-  const grabs = column(cards, 'grabs');
   const name = (id: string | null) => (id && profiles[id]?.fullName) || 'Someone';
 
   async function act(fn: () => Promise<unknown>) {
@@ -52,9 +51,10 @@ export function TasksPage({ repo, me, profiles, tasks, taskTime, tz }: Props) {
         </div>
         {(isAdmin || c.task.assignees.length > 1) && c.person && <span className="sub">{name(c.person)}</span>}
         <span className="sub">Est. {dur(c.task.estimateMinutes)}{c.person ? ` · logged ${spent ? dur(spent) : '0m'}` : ''}{c.status === 'done' && c.doneAt ? ` · done ${shortDate(dateOf(c.doneAt, tz))}` : ''}</span>
-        {c.status === 'grabs' ? (
-          me.role === 'rcm' && <button className="btn small primary" type="button" onClick={() => act(() => repo.claimTask(c.task.id))}>Take it</button>
-        ) : movable && (
+        {c.status === 'grabs' ? (<>
+          {isAdmin && <span className={'pill for-' + c.task.grabsFor}>{c.task.grabsFor === 'admin' ? 'For admins' : 'For RCMs'}</span>}
+          {(me.role === 'rcm') === (c.task.grabsFor === 'rcm') && <button className="btn small primary" type="button" onClick={() => act(() => repo.claimTask(c.task.id))}>Take it</button>}
+        </>) : movable && (
           <label className="movesel">
             <select aria-label={`Move ${c.task.title}${isAdmin ? ' for ' + name(c.person) : ''}`} value={c.status} onChange={(e) => move(c, e.target.value as TaskStatus)}>
               {COLUMNS.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
@@ -81,14 +81,14 @@ export function TasksPage({ repo, me, profiles, tasks, taskTime, tz }: Props) {
         </div>
       </div>
       {error && <p className="err" role="alert">{error}</p>}
-      {grabs.length > 0 && (
-        <div className="panel grabs">
-          <h3>Up for grabs</h3>
-          <p className="note">{me.role === 'rcm' ? 'Nobody is assigned to these yet. Take one and it moves to your To do.' : 'Tasks without an assignee. RCMs can take them with one click.'}</p>
-          <ul className="tasklist" aria-label="Up for grabs">{grabs.map(cardView)}</ul>
-        </div>
-      )}
       <div className="kanban">
+        <div className="kcol grabs" data-status="grabs">
+          <h3>Up for grabs <span className="muted">{column(cards, 'grabs').length}</span></h3>
+          <p className="note">{me.role === 'rcm' ? 'Nobody has these yet: take one and it moves to your To do.' : 'Nobody assigned yet. RCMs take the RCM ones, admins the admin ones.'}</p>
+          <ul className="tasklist" aria-label="Up for grabs">
+            {column(cards, 'grabs').length ? column(cards, 'grabs').map(cardView) : <li className="empty">Nothing here.</li>}
+          </ul>
+        </div>
         {COLUMNS.map((status) => {
           const list = column(cards, status);
           const shown = status === 'done' ? pageOf(list, donePage) : { items: list, pages: 1 };
@@ -130,6 +130,8 @@ function TaskModal({ repo, me, people, task, profiles, taskTime, tz, onClose }: 
   const [eh, setEh] = useState(Math.floor(est / 60));
   const [em, setEm] = useState(est % 60);
   const [assigned, setAssigned] = useState<string[]>(task?.assignees.map((a) => a.person) || []);
+  // asked every time a task is saved without assignees: up for grabs for RCMs or for admins?
+  const [grabsFor, setGrabsFor] = useState<GrabsFor | null>(task && !task.assignees.length ? task.grabsFor : null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [armed, setArmed] = useState(false);
@@ -139,8 +141,8 @@ function TaskModal({ repo, me, people, task, profiles, taskTime, tz, onClose }: 
     try { await fn(); onClose(); } catch (e) { setError(errorText(e, tz)); setBusy(false); }
   }
   function save() {
-    const input = { title, description, priority, estimateMinutes: eh * 60 + em };
-    const err = validateTask(input);
+    const input = { title, description, priority, estimateMinutes: eh * 60 + em, grabsFor: assigned.length ? null : grabsFor };
+    const err = validateTask(input, assigned);
     if (err) { setError(err); return; }
     run(() => (task ? repo.updateTask(task.id, input, assigned) : repo.createTask(input, assigned)));
   }
@@ -183,6 +185,13 @@ function TaskModal({ repo, me, people, task, profiles, taskTime, tz, onClose }: 
           </label>
         ))}
       </div>
+      {!assigned.length && (
+        <div className="checks grabsask" role="radiogroup" aria-label="Up for grabs for">
+          <span className="eyebrow">Nobody assigned: who can take it? (required)</span>
+          <label className="check"><input type="radio" name="tk-grabs" checked={grabsFor === 'rcm'} onChange={() => setGrabsFor('rcm')} />RCMs (shown in the RCMs' Up for grabs)</label>
+          <label className="check"><input type="radio" name="tk-grabs" checked={grabsFor === 'admin'} onChange={() => setGrabsFor('admin')} />Admins (only admins see it)</label>
+        </div>
+      )}
       {task && task.assignees.length > 0 && (
         <table className="mini">
           <thead><tr><th>Person</th><th>Status</th><th className="num">Logged</th></tr></thead>

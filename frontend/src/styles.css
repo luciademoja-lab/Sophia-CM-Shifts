@@ -9,7 +9,7 @@
   --f-display:"Schibsted Grotesk","Helvetica Neue",Arial,sans-serif;
   --f-body:"Public Sans","Segoe UI",Roboto,Arial,sans-serif;
   --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
-  --row:11px;
+  --row:22px;
   color-scheme:light;
 }
 @media (prefers-color-scheme: dark){
@@ -67,7 +67,7 @@ header.top{display:flex; flex-wrap:wrap; gap:12px 20px; align-items:flex-end; ju
 .sw.open{background:repeating-linear-gradient(45deg,var(--warn-soft) 0 3px,transparent 3px 6px); border:1px dashed var(--warn)}
 .sw.uncovered{background:repeating-linear-gradient(-45deg,var(--danger-soft) 0 3px,transparent 3px 6px); border-left:2px solid var(--danger)}
 
-.boardwrap{background:var(--surface); border:1px solid var(--line); border-radius:10px; overflow:auto; max-height:72vh; position:relative}
+.boardwrap{background:var(--surface); border:1px solid var(--line); border-radius:10px; overflow:auto; aspect-ratio:1 / 1; max-height:92vh; min-height:420px; position:relative}
 .board{display:grid; grid-template-columns:52px repeat(7, minmax(86px,1fr)); min-width:660px}
 .corner,.dayhead{position:sticky; top:0; z-index:6; background:var(--surface); border-bottom:1px solid var(--line); height:44px}
 .corner{left:0; z-index:7}
@@ -260,3 +260,12 @@ table.mini{font-size:13px}
 .linked select{width:auto; min-width:110px}
 .dayhead .dst{display:block; font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--warn)}
 .dstnote{margin:0 0 8px; padding:8px 12px; border-left:3px solid var(--warn); background:var(--warn-soft); border-radius:4px; font-size:13px}
+.kanban{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media (max-width:1000px){ .kanban{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (max-width:600px){ .kanban{grid-template-columns:1fr} }
+.kcol.grabs{background:color-mix(in srgb, var(--accent) 7%, var(--surface-2))}
+.kcol .note{margin:0 0 8px; font-size:12px}
+.pill.for-admin{background:var(--warn-soft); color:var(--warn)}
+.pill.for-rcm{background:color-mix(in srgb, var(--accent) 14%, transparent); color:var(--accent)}
+.task .pill{margin-left:0; justify-self:start}
+.grabsask{padding:8px 10px; border:1px dashed var(--warn); border-radius:6px}
