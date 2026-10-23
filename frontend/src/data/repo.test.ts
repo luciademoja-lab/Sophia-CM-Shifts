@@ -32,3 +32,13 @@ describe('parseDbError', () => {
     expect(parseDbError('Failed to fetch').code).toBe('network');
   });
 });
+
+import { loadErrorText as _let, parseDbError as _pde } from './repo';
+describe('loadErrorText', () => {
+  it('says the database needs the latest migrations when a column is missing', () => {
+    expect(_let(_pde('column tasks.grabs_for does not exist'))).toMatch(/missing the latest update \(column tasks.grabs_for does not exist\).*db push/);
+  });
+  it('shows the raw reason otherwise', () => {
+    expect(_let(new Error('Failed to fetch'))).toBe('Could not load the schedule (Failed to fetch). Check your connection and reload the page.');
+  });
+});

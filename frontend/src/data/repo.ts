@@ -82,9 +82,20 @@ export interface Repo {
 export type ErrorCode = 'overlap' | 'forbidden' | 'invalid' | 'not_found' | 'not_signed_in' | 'bad_login' | 'conflict' | 'network';
 
 export class RepoError extends Error {
+  /** the raw database message, kept for diagnosing problems */
+  detail?: string;
   constructor(readonly code: ErrorCode, message: string, readonly overlap?: { who: string; start: number; end: number }) {
     super(message);
   }
+}
+
+/** What to show when the schedule cannot be loaded: the database's own reason helps fix it. */
+export function loadErrorText(e: unknown): string {
+  const raw = e instanceof RepoError ? e.detail || e.message : e instanceof Error ? e.message : String(e);
+  if (/column .* does not exist|relation .* does not exist|function .* does not exist|schema cache/i.test(raw)) {
+    return `The database is missing the latest update (${raw}). Run "npx.cmd supabase --workdir backend db push --linked", then reload the page.`;
+  }
+  return `Could not load the schedule (${raw}). Check your connection and reload the page.`;
 }
 
 const CODES: Record<string, ErrorCode> = {
@@ -107,7 +118,9 @@ export function parseDbError(message: string): RepoError {
   const m = /(RCM_[A-Z_]+)(?::\s*(.*))?/.exec(message || '');
   if (!m) {
     if (/shifts_one_rcm_per_slot/.test(message)) return new RepoError('overlap', 'Only one RCM per slot.');
-    return new RepoError('network', 'Could not save. Check your connection and try again.');
+    const e = new RepoError('network', 'Could not save. Check your connection and try again.');
+    e.detail = message;
+    return e;
   }
   const code = CODES[m[1]] || 'invalid';
   const detail = (m[2] || '').trim();

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { withRefresh } from './data/refresh';
-import type { Repo, Snapshot } from './data/repo';
+import { loadErrorText, type Repo, type Snapshot } from './data/repo';
 import { DAY_MS, addDays, browserTimeZone, dayStartMs, weekStart } from './lib/time';
 import { Board } from './ui/Board';
 import { Login } from './ui/Login';
@@ -50,7 +50,7 @@ function SignedIn({ repo: base }: { repo: Repo }) {
     let alive = true;
     repo.load(from, to).then(
       (s) => { if (alive) { setSnap(s); setError(null); } },
-      () => { if (alive) setError('Lost the connection to the schedule. Reload the page.'); },
+      (e) => { if (alive) setError(loadErrorText(e)); },
     );
     return () => { alive = false; };
   }, [repo, from, to, tick]);
