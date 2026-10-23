@@ -1,13 +1,13 @@
 // Shifts: the availability RCMs book on the board, plus the rules the board enforces.
 import { HOUR, dateOf, dateValue, hm, rangeLabel } from './time';
 
-export type ShiftStatus = 'booked' | 'open' | 'covered';
+export type ShiftStatus = 'booked' | 'open' | 'covered' | 'pending';
 export type Shift = {
   id: string;
   owner: string;
   start: number;
   end: number;
-  /** booked = available; open = needs cover; covered = someone else took it over */
+  /** booked; open = needs cover; covered = someone else took it over; pending = request waiting for an admin */
   status: ShiftStatus;
   /** set on the shift created when someone takes over an open shift */
   coversId: string | null;
@@ -23,7 +23,7 @@ export type Profile = {
   timezone: string | null;
   active: boolean;
 };
-export type LogAction = 'booked' | 'edited' | 'deleted' | 'restored' | 'ask' | 'cancelask' | 'took' | 'gaveback' | 'reported';
+export type LogAction = 'booked' | 'edited' | 'deleted' | 'restored' | 'ask' | 'cancelask' | 'took' | 'gaveback' | 'reported' | 'requested' | 'approved' | 'rejected';
 export type LogEntry = {
   id: string;
   at: number;
@@ -63,15 +63,16 @@ export function openInRange(list: Shift[], from: number, to: number): Shift[] {
 }
 
 /** Milliseconds per person in [from, to); `worked` sums the reports of shifts starting in the range. */
-export type Hours = { owner: string; booked: number; covering: number; open: number; worked: number; reported: number };
+export type Hours = { owner: string; booked: number; covering: number; open: number; pending: number; worked: number; reported: number };
 export function weekHours(list: Shift[], from: number, to: number, reports: Record<string, Report> = {}): Hours[] {
   const per = new Map<string, Hours>();
-  const get = (owner: string) => per.get(owner) || { owner, booked: 0, covering: 0, open: 0, worked: 0, reported: 0 };
+  const get = (owner: string) => per.get(owner) || { owner, booked: 0, covering: 0, open: 0, pending: 0, worked: 0, reported: 0 };
   for (const s of activeShifts(list)) {
     const a = Math.max(s.start, from), b = Math.min(s.end, to);
     if (b <= a) continue;
     const h = get(s.owner);
     if (s.status === 'open') h.open += b - a;
+    else if (s.status === 'pending') h.pending += b - a;
     else { h.booked += b - a; if (s.coversId) h.covering += b - a; }
     const r = reports[s.id];
     if (r && s.start >= from && s.start < to) { h.worked += r.workedMinutes * 60_000; h.reported += 1; }
@@ -90,7 +91,35 @@ export function canManage(s: Shift, me: Profile | null): boolean {
 
 /** Reports are written by the shift owner or an admin, once the shift has started. */
 export function canReport(s: Shift, me: Profile | null, now: number): boolean {
-  return canManage(s, me) && s.status !== 'covered' && s.start <= now;
+  return canManage(s, me) && (s.status === 'booked' || s.status === 'open') && s.start <= now;
+}
+
+/** "Ask for cover" only on your own booked shift that has not started yet. */
+export function canAskCover(s: Shift, me: Profile | null, now: number): boolean {
+  return canManage(s, me) && s.status === 'booked' && !s.coversId && s.start > now;
+}
+
+/** RCMs cannot change or delete a shift of a past day (in their own time zone); admins can. */
+export function canChange(s: Shift, me: Profile | null, now: number): boolean {
+  if (!canManage(s, me)) return false;
+  if (me!.role === 'admin') return true;
+  const tz = me!.timezone || 'UTC';
+  return dateValue(dateOf(s.start, tz)) >= dateValue(dateOf(now, tz));
+}
+
+const involves = (l: LogEntry, id: string) => l.actor === id || l.owner === id || l.fromOwner === id;
+
+/** RCMs see what involves them; admins and viewers see everything, or one person. */
+export function historyFor(log: LogEntry[], me: Profile | null, person: string | null): LogEntry[] {
+  if (!me) return [];
+  if (me.role === 'rcm') return log.filter((l) => involves(l, me.id));
+  return person ? log.filter((l) => involves(l, person)) : log;
+}
+
+/** For admins: changes made by RCMs, newest first; unread = after they last looked. */
+export function notificationsFor(log: LogEntry[], profiles: Record<string, Profile>, me: Profile | null, seenAt: number): Array<{ entry: LogEntry; unread: boolean }> {
+  if (!me || me.role !== 'admin') return [];
+  return log.filter((l) => profiles[l.actor]?.role === 'rcm').sort((a, b) => b.at - a.at).map((entry) => ({ entry, unread: entry.at > seenAt }));
 }
 
 /** Ids of the newest history entry for each shift: that is where its report is shown. */
@@ -117,12 +146,15 @@ export function personColor(username: string): string {
 const VERBS: Record<LogAction, string> = {
   booked: 'booked', edited: 'changed', deleted: 'deleted', restored: 'restored',
   ask: 'asked for cover on', cancelask: 'withdrew the cover request on', took: 'took over', gaveback: 'gave back', reported: 'reported on',
+  requested: 'requested', approved: 'approved', rejected: 'rejected',
 };
 
 export function historyText(l: LogEntry, name: (id: string | null) => string, tz: string): string {
   const actor = name(l.actor);
   let txt: string;
-  if (l.action === 'reported' && l.owner !== l.actor) {
+  if (l.action === 'approved' || l.action === 'rejected') {
+    txt = `${actor} ${l.action} ${name(l.owner)}'s request`;
+  } else if (l.action === 'reported' && l.owner !== l.actor) {
     txt = `${actor} edited the report on ${name(l.owner)}'s shift`;
   } else if (l.action === 'took') {
     txt = l.owner === l.actor ? `${actor} took over ${name(l.fromOwner)}'s shift` : `${actor} gave ${name(l.fromOwner)}'s shift to ${name(l.owner)}`;

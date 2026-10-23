@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
 import type { Repo } from '../data/repo';
-import { canReport, findOverlap, type Profile, type Report, type Shift } from '../lib/shifts';
+import { canAskCover, canChange, canReport, findOverlap, type Profile, type Report, type Shift } from '../lib/shifts';
 import { dateOf, dateValue, dur, minLabel, minuteOfDay, parseDateValue, rangeLabel, zonedToUtc } from '../lib/time';
 import { errorText } from './errors';
 import { personName } from './Grid';
 import { Field, Modal } from './Modal';
 import { reportSummary } from './ReportEditor';
 import { emptyAvailability, isAvailable, type Availability } from '../lib/availability';
+import { isRequiredRange, type Coverage } from '../lib/coverage';
 
-export type EditorCtx = { shift: Shift } | { newStart: number; newMinutes: number };
+export type EditorCtx = { shift: Shift } | { newStart: number; newMinutes: number; owner?: string };
 
 type Props = {
   ctx: EditorCtx;
@@ -19,18 +20,21 @@ type Props = {
   shifts: Shift[];
   reports: Record<string, Report>;
   availability: Record<string, Availability>;
+  coverage: Coverage | null;
   now: number;
   onClose: () => void;
   onReport: (s: Shift) => void;
 };
 
-export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, availability, now, onClose, onReport }: Props) {
+export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, availability, coverage, now, onClose, onReport }: Props) {
   const s = 'shift' in ctx ? ctx.shift : null;
-  const isNew = !s, isOpen = !!s && s.status === 'open';
+  const isNew = !s, isOpen = !!s && s.status === 'open', isPending = !!s && s.status === 'pending';
   const isAdmin = me.role === 'admin';
   const mine = isNew || s!.owner === me.id;
   const isViewer = me.role === 'viewer';
-  const editable = !isViewer && (isNew || (!isOpen && (mine || isAdmin)));
+  const reviewing = isPending && isAdmin;
+  const editable = !isViewer && !reviewing && (isNew || (!isOpen && canChange(s!, me, now)));
+  const pastLocked = !isNew && !isOpen && !isViewer && mine && !isAdmin && !canChange(s!, me, now);
   const start0 = s ? s.start : (ctx as { newStart: number }).newStart;
   const minutes0 = s ? Math.round((s.end - s.start) / 60000) : (ctx as { newMinutes: number }).newMinutes;
   const name = (id: string) => personName(profiles, id, me).replace(' (you)', '');
@@ -39,7 +43,7 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, avai
   const [day, setDay] = useState(dateValue(dateOf(start0, tz)));
   const [startMin, setStartMin] = useState(minuteOfDay(start0, tz));
   const [length, setLength] = useState(minutes0);
-  const [owner, setOwner] = useState(s ? (isOpen ? me.id : s.owner) : me.id);
+  const [owner, setOwner] = useState(s ? (isOpen ? me.id : s.owner) : ((ctx as { owner?: string }).owner ?? me.id));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [armed, setArmed] = useState(false);
@@ -56,9 +60,12 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, avai
   const target = owner;
   const range = isOpen ? s : r;
   const outside = !!range && !availableFor(target, range);
+  // RCMs booking outside the required hours or their availability send a request instead.
+  const asRequest = me.role === 'rcm' && !isOpen && !!r && (!availableFor(me.id, r) || !isRequiredRange(coverage, r.start, r.end));
   const outsideMsg = target === me.id
-    ? 'This is outside your availability. Add these hours in "My availability" first.'
+    ? 'This is outside your availability.'
     : `Outside ${profiles[target]?.fullName ?? 'this person'}'s availability. You can still assign it.`;
+  const dot = (ok: boolean) => (ok ? '🟢' : '🔴');
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true); setError(null);
@@ -71,7 +78,7 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, avai
     return true;
   };
 
-  const eyebrow = isNew ? 'New shift' : isOpen ? 'Needs cover' : s!.coversId ? 'Cover shift' : 'Shift';
+  const eyebrow = isNew ? 'New shift' : isPending ? 'Request' : isOpen ? 'Needs cover' : s!.coversId ? 'Cover shift' : 'Shift';
   const covered = s?.coversId ? shifts.find((x) => x.id === s.coversId) : undefined;
   const lengths = Array.from({ length: 64 }, (_, k) => (k + 1) * 15);
   if (!lengths.includes(length)) lengths.push(length);
@@ -82,13 +89,16 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, avai
         <div className="eyebrow">{eyebrow}</div>
         <h2>{isNew ? 'Book a shift' : personName(profiles, s!.owner, me)}</h2>
         {covered && <p className="note">Covering for {name(covered.owner)}.</p>}
-        {isViewer ? <p className="note">You have read-only access.</p> : !editable && !isOpen && <p className="err">Only the person who booked this shift or an admin can change it.</p>}
+        {isPending && <p className="note" data-testid="pending-note">Waiting for an admin to approve it.</p>}
+        {isViewer ? <p className="note">You have read-only access.</p>
+          : pastLocked ? <p className="note">This day has passed: only an admin can change this shift now.</p>
+          : !editable && !isOpen && <p className="err">Only the person who booked this shift or an admin can change it.</p>}
       </div>
 
       {(isAdmin && (editable || isOpen)) ? (
         <Field label={isOpen ? 'Who takes this shift' : 'RCM'} htmlFor="f-owner">
           <select id="f-owner" value={owner} onChange={(e) => setOwner(e.target.value)}>
-            {people.filter((p) => !isOpen || p.id !== s!.owner).map((p) => <option key={p.id} value={p.id}>{p.fullName} · {range ? (availableFor(p.id, range) ? 'available' : 'not available') : (p.timezone || 'no time zone')}</option>)}
+            {people.filter((p) => !isOpen || p.id !== s!.owner).map((p) => <option key={p.id} value={p.id}>{range ? `${dot(availableFor(p.id, range))} ${p.fullName}` : p.fullName}</option>)}
           </select>
         </Field>
       ) : null}
@@ -116,14 +126,15 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, avai
           {canReport(s, me, now) && <div><button className="btn small" type="button" onClick={() => onReport(s)}>{reports[s.id] ? 'Edit report' : 'Add report'}</button></div>}
         </div>
       )}
-      {!isViewer && (editable || isOpen) && outside && <p className={me.role === 'admin' ? 'warnline' : 'err'} data-testid="availability-warning">{outsideMsg}</p>}
+      {!isViewer && (editable || isOpen) && outside && <p className={isAdmin ? 'warnline' : 'err'} data-testid="availability-warning">{outsideMsg}</p>}
+      {asRequest && editable && <p className="warnline" data-testid="request-warning">{outside ? 'Outside your availability' : 'Outside the required hours'}: this will be sent to the admins as a request. You can confirm it and report on it once an admin approves it.</p>}
       {error && <p className="err" role="alert">{error}</p>}
 
       <div className="actions">
         {isNew && (<>
           <span className="spacer" />
           <button className="btn" type="button" onClick={onClose}>Cancel</button>
-          <button className="btn primary" type="button" disabled={busy} onClick={() => checkFree(r, []) && run(() => repo.bookShift(r!.start, r!.end, owner === me.id ? null : owner))}>Book shift</button>
+          <button className="btn primary" type="button" disabled={busy} onClick={() => checkFree(r, []) && run(() => repo.bookShift(r!.start, r!.end, owner === me.id ? null : owner))}>{asRequest ? 'Send request' : 'Book shift'}</button>
         </>)}
 
         {isOpen && !isViewer && (<>
@@ -137,18 +148,24 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, avai
           )}
         </>)}
 
-        {!isNew && !isOpen && editable && (<>
-          <button className="btn danger" type="button" disabled={busy} onClick={() => (armed ? run(() => repo.deleteShift(s!.id)) : setArmed(true))}>{armed ? 'Click again to delete' : s!.coversId ? 'Give back' : 'Delete shift'}</button>
-          {!s!.coversId && <button className="btn warn" type="button" disabled={busy} onClick={() => run(() => repo.askCover(s!.id))}>Ask for cover</button>}
+        {isPending && isAdmin && (<>
+          <button className="btn danger" type="button" disabled={busy} onClick={() => run(() => repo.rejectShift(s!.id))}>Reject</button>
+          <span className="spacer" />
+          <button className="btn primary" type="button" disabled={busy} onClick={() => run(() => repo.approveShift(s!.id))}>Approve</button>
+        </>)}
+
+        {!isNew && !isOpen && !reviewing && editable && (<>
+          <button className="btn danger" type="button" disabled={busy} onClick={() => (armed ? run(() => repo.deleteShift(s!.id)) : setArmed(true))}>{armed ? 'Click again to delete' : isPending ? 'Withdraw request' : s!.coversId ? 'Give back' : 'Delete shift'}</button>
+          {canAskCover(s!, me, now) && <button className="btn warn" type="button" disabled={busy} onClick={() => run(() => repo.askCover(s!.id))}>Ask for cover</button>}
           <span className="spacer" />
           <button className="btn primary" type="button" disabled={busy} onClick={() => {
             if (!checkFree(r, [s!.id])) return;
             if (r!.start === s!.start && r!.end === s!.end && owner === s!.owner) { onClose(); return; }
             run(() => repo.updateShift(s!.id, r!.start, r!.end, owner === s!.owner ? null : owner));
-          }}>Save</button>
+          }}>{asRequest && !isPending ? 'Send request' : 'Save'}</button>
         </>)}
 
-        {!isNew && (isViewer || (!isOpen && !editable)) && (<>
+        {!isNew && (isViewer || (!isOpen && !editable && !reviewing)) && (<>
           <span className="spacer" />
           <button className="btn" type="button" onClick={onClose}>Close</button>
         </>)}

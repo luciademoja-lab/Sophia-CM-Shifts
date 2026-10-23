@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  activeShifts, findOverlap, weekHours, canManage, canReport, latestEntryPerShift, personColor, historyText, toCsv, onDutyAt, openInRange,
+  activeShifts, findOverlap, weekHours, canManage, canReport, latestEntryPerShift, canAskCover, canChange, historyFor, notificationsFor, personColor, historyText, toCsv, onDutyAt, openInRange,
   type Shift, type Profile, type LogEntry, type Report,
 } from './shifts';
 
@@ -50,8 +50,8 @@ describe('weekHours', () => {
       sh('d', 'kri', -3, 1), // starts the Sunday before: only 1h counts
     ];
     expect(weekHours(list, t0, t0 + 7 * 24 * H)).toEqual([
-      { owner: 'kri', booked: 6 * H, covering: 5 * H, open: 0, worked: 0, reported: 0 },
-      { owner: 'reg', booked: 2 * H, covering: 0, open: 2 * H, worked: 0, reported: 0 },
+      { owner: 'kri', booked: 6 * H, covering: 5 * H, open: 0, pending: 0, worked: 0, reported: 0 },
+      { owner: 'reg', booked: 2 * H, covering: 0, open: 2 * H, pending: 0, worked: 0, reported: 0 },
     ]);
   });
   it('adds the hours actually worked from reports, counted in the week the shift starts', () => {
@@ -61,7 +61,7 @@ describe('weekHours', () => {
       d: { shiftId: 'd', owner: 'reg', workedMinutes: 240, notes: '', updatedAt: 0, updatedBy: 'reg' },
     };
     expect(weekHours(list, t0, t0 + 7 * 24 * H, reports)).toEqual([
-      { owner: 'reg', booked: 6 * H, covering: 0, open: 0, worked: 150 * 60000, reported: 1 },
+      { owner: 'reg', booked: 6 * H, covering: 0, open: 0, pending: 0, worked: 150 * 60000, reported: 1 },
     ]);
   });
 });
@@ -98,6 +98,58 @@ describe('canReport', () => {
     expect(canReport(sh('a', 'reg', 13, 14), profiles.reg, now)).toBe(false);
     expect(canReport(sh('a', 'reg', 8, 10), profiles.kri, now)).toBe(false);
     expect(canReport(sh('a', 'reg', 8, 10, { status: 'covered' }), profiles.reg, now)).toBe(false);
+  });
+});
+
+describe('requests, past days and cover', () => {
+  const now = t0 + 2 * 24 * H + 12 * H; // Wednesday 12:00 UTC
+  it('counts requests separately from booked hours', () => {
+    expect(weekHours([sh('a', 'reg', 50, 52, { status: 'pending' })], t0, t0 + 7 * 24 * H)[0]).toMatchObject({ booked: 0, pending: 2 * H });
+  });
+  it('reserves the slot while a request waits', () => {
+    expect(findOverlap([sh('a', 'reg', 8, 10, { status: 'pending' })], t0 + 9 * H, t0 + 11 * H, [])?.id).toBe('a');
+  });
+  it('allows reports only on approved shifts', () => {
+    expect(canReport(sh('a', 'reg', 8, 10, { status: 'pending' }), profiles.reg, now)).toBe(false);
+  });
+  it('offers "ask for cover" only before a shift starts', () => {
+    expect(canAskCover(sh('a', 'reg', 61, 62), profiles.reg, now)).toBe(true);
+    expect(canAskCover(sh('a', 'reg', 59, 62), profiles.reg, now)).toBe(false);
+    expect(canAskCover(sh('a', 'reg', 70, 72, { coversId: 'z' }), profiles.reg, now)).toBe(false);
+  });
+  it('locks shifts of past days for RCMs, in their own time zone, but not for admins', () => {
+    const tuesday = sh('a', 'reg', 30, 32);
+    expect(canChange(tuesday, profiles.reg, now)).toBe(false);
+    expect(canChange(tuesday, profiles.luc, now)).toBe(true);
+    expect(canChange(sh('a', 'reg', 49, 50), profiles.reg, now)).toBe(true); // Wednesday, today
+    // 23:30 UTC on Tuesday is already Wednesday in Budapest
+    expect(canChange(sh('a', 'reg', 47.5, 48), profiles.reg, now)).toBe(true);
+  });
+});
+
+describe('history and notifications', () => {
+  const e = (id: string, actor: string, owner: string, action: LogEntry['action'] = 'booked', at = t0, fromOwner: string | null = null): LogEntry =>
+    ({ id, at, actor, owner, action, start: t0, end: t0 + H, fromOwner, shiftId: id });
+  const log = [e('1', 'reg', 'reg'), e('2', 'kri', 'kri'), e('3', 'luc', 'reg'), e('4', 'kri', 'kri', 'took', t0, 'reg')];
+  it('shows RCMs only what involves them', () => {
+    expect(historyFor(log, profiles.reg, null).map((l) => l.id)).toEqual(['1', '3', '4']);
+  });
+  it('shows admins everything, or one person', () => {
+    expect(historyFor(log, profiles.luc, null)).toHaveLength(4);
+    expect(historyFor(log, profiles.luc, 'kri').map((l) => l.id)).toEqual(['2', '4']);
+  });
+  it('turns RCM changes into notifications for admins, newest first, with unread ones flagged', () => {
+    const list = [e('1', 'reg', 'reg', 'booked', t0 + 1), e('2', 'luc', 'reg', 'edited', t0 + 2), e('3', 'kri', 'kri', 'requested', t0 + 3)];
+    expect(notificationsFor(list, profiles, profiles.luc, t0 + 1)).toEqual([
+      { entry: list[2], unread: true }, { entry: list[0], unread: false },
+    ]);
+    expect(notificationsFor(list, profiles, profiles.reg, 0)).toEqual([]);
+  });
+  it('describes requests and decisions', () => {
+    const name = (id: string | null) => (id && profiles[id] ? profiles[id].fullName : 'Someone');
+    expect(historyText(e('5', 'reg', 'reg', 'requested'), name, 'UTC')).toBe('Regina Nemeth requested a shift, Mon 19 Oct 00:00–01:00');
+    expect(historyText(e('6', 'luc', 'reg', 'approved'), name, 'UTC')).toBe('Lucia De Mojà approved Regina Nemeth\'s request, Mon 19 Oct 00:00–01:00');
+    expect(historyText(e('7', 'luc', 'reg', 'rejected'), name, 'UTC')).toBe('Lucia De Mojà rejected Regina Nemeth\'s request, Mon 19 Oct 00:00–01:00');
   });
 });
 

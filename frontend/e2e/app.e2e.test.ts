@@ -188,7 +188,8 @@ describe('hours worked and shift reports', () => {
     await reportAsRegina();
     await page.getByRole('button', { name: 'Sign out' }).click();
     await signIn('kris');
-    await page.locator('#history', { hasText: 'Answered Zone A' }).waitFor();
+    await page.locator('.shift').first().waitFor();
+    expect(await page.locator('#history').innerText()).not.toContain('Answered Zone A'); // RCMs only see their own history
     expect(await page.locator('#history').getByRole('button', { name: /report/ }).count()).toBe(0);
     await page.getByRole('button', { name: 'Sign out' }).click();
     await signIn('max');
@@ -233,8 +234,9 @@ describe('availability and assigning shifts', () => {
     await page.waitForFunction(() => document.querySelectorAll('.avail').length === 5); // usually Mon–Sat, Monday now off
   });
 
-  it('stops an RCM from booking outside their availability', async () => {
+  async function requestAsRana() {
     await signIn('rana');
+    await page.getByRole('button', { name: 'Next week' }).click();
     const col = page.locator('.col').nth(3);
     const box = (await col.boundingBox())!;
     const y = box.y + 11 * 4 * 9 + 2; // 09:00 Istanbul, before Rana's 15:00 start
@@ -243,9 +245,46 @@ describe('availability and assigning shifts', () => {
     await page.mouse.move(box.x + 20, y + 11 * 4, { steps: 2 });
     await page.mouse.up();
     await page.getByTestId('availability-warning').waitFor();
-    await page.getByRole('button', { name: 'Book shift' }).click();
-    await page.getByText('outside your availability', { exact: false }).last().waitFor();
-    expect(await page.getByTestId('overlay').isVisible()).toBe(true);
+    await page.getByTestId('request-warning').waitFor();
+    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByTestId('overlay').waitFor({ state: 'hidden' });
+    await page.locator('.shift.is-pending').waitFor();
+  }
+
+  it('turns an RCM booking outside their availability into a request they cannot report on yet', async () => {
+    await requestAsRana();
+    await page.locator('.shift.is-pending').click();
+    await page.getByTestId('pending-note').waitFor();
+    expect(await page.getByRole('button', { name: /report|Ask for cover/ }).count()).toBe(0);
+    await page.getByRole('button', { name: 'Withdraw request' }).waitFor();
+  });
+
+  it('notifies admins, who approve the request from the notifications panel', async () => {
+    await requestAsRana();
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('lucia');
+    await page.getByTestId('notif-badge').waitFor();
+    await page.getByRole('button', { name: /^Notifications/ }).click();
+    await page.getByTestId('requests').getByText('Rana Barakli asks for').waitFor();
+    await page.getByRole('button', { name: 'Approve' }).click();
+    await page.getByText('No requests waiting.').waitFor();
+    expect(await page.getByText('Changes by RCMs').count()).toBe(1);
+    await page.getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Next week' }).click();
+    await page.locator('.shift', { hasText: 'Rana Barakli' }).first().waitFor();
+    expect(await page.locator('.shift.is-pending').count()).toBe(0);
+    expect(await page.getByTestId('notif-badge').count()).toBe(0);
+  });
+
+  it('lets admins reject a request from the shift itself', async () => {
+    await requestAsRana();
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('aram');
+    await page.getByRole('button', { name: 'Next week' }).click();
+    await page.locator('.shift.is-pending').click();
+    await page.getByRole('button', { name: 'Reject' }).click();
+    await page.getByTestId('overlay').waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => !document.querySelector('.shift.is-pending'));
   });
 
   it('shows admins everyone\'s availability and lets them assign outside it with a warning', async () => {
@@ -256,7 +295,8 @@ describe('availability and assigning shifts', () => {
     const col = page.locator('.col').nth(4);
     const box = (await col.boundingBox())!;
     await page.mouse.click(box.x + 60, box.y + 11 * 4 * 20 + 2); // Friday 20:00 Rome
-    await page.getByLabel('RCM').selectOption({ label: 'Regina Nemeth · not available' });
+    expect(await page.getByLabel('RCM').locator('option').allInnerTexts()).toContain('🔴 Regina Nemeth');
+    await page.getByLabel('RCM').selectOption({ label: '🔴 Regina Nemeth' });
     await page.getByText("Outside Regina Nemeth's availability. You can still assign it.").waitFor();
     await page.getByRole('button', { name: 'Book shift' }).click();
     await page.getByTestId('overlay').waitFor({ state: 'hidden' });
@@ -269,6 +309,72 @@ describe('availability and assigning shifts', () => {
     await page.locator('.avail').first().waitFor();
     expect(await page.locator('.lane').count()).toBe(0);
     expect(await page.getByRole('button', { name: /availability/ }).count()).toBe(0); // viewers cannot edit it
+  });
+});
+
+describe('history, plan and past days', () => {
+  it('shows RCMs only their own history', async () => {
+    await signIn('rana');
+    await page.locator('#history li').first().waitFor();
+    expect(await page.locator('#hist-person').count()).toBe(0);
+    for (const t of await text('#history li')) expect(t).toMatch(/Rana Barakli|Changes to shifts/);
+  });
+
+  it('lets admins filter the history by person (not viewers) and delete entries', async () => {
+    await signIn('lucia');
+    const options = await page.locator('#hist-person option').allInnerTexts();
+    expect(options).toContain('Regina Nemeth');
+    expect(options).not.toContain('Max');
+    expect(options.some((o) => /Adrien/.test(o))).toBe(false);
+    await page.getByRole('button', { name: 'Next week' }).click();
+    await page.locator('#plan li').first().getByRole('button', { name: 'Assign' }).click();
+    await page.locator('#history li', { hasText: 'Lucia De Mojà' }).first().waitFor();
+    await page.locator('#hist-person').selectOption({ label: 'Regina Nemeth' });
+    for (const t of await text('#history li')) expect(t).toMatch(/Regina Nemeth|Changes to shifts/);
+    await page.locator('#hist-person').selectOption({ label: 'Lucia De Mojà' });
+    for (const t of await text('#history li')) expect(t).toContain('Lucia De Mojà');
+    const before = await page.locator('#history li:not(.empty)').count();
+    await page.locator('#history').getByRole('button', { name: 'Delete this entry' }).first().click();
+    await page.locator('#history').getByRole('button', { name: 'Click again to delete this entry' }).click();
+    await page.waitForFunction((n) => document.querySelectorAll('#history li:not(.empty)').length === n - 1, before);
+  });
+
+  it('lets viewers filter the history but not delete it', async () => {
+    await signIn('max');
+    await page.locator('#hist-person').waitFor();
+    expect(await page.locator('#history .del').count()).toBe(0);
+  });
+
+  it('shows admins the week plan with suggestions they can assign', async () => {
+    await signIn('lucia');
+    await page.getByRole('button', { name: 'Next week' }).click();
+    const plan = page.locator('#plan');
+    await plan.getByText('Required', { exact: true }).waitFor();
+    const items = plan.getByRole('list', { name: 'Suggested shifts' }).locator('li');
+    await items.first().waitFor();
+    expect(await page.locator('.ghost').count()).toBeGreaterThan(0);
+    const n = await items.count();
+    await items.first().getByRole('button', { name: 'Assign' }).click();
+    await page.waitForFunction((k) => document.querySelectorAll('#plan li').length !== k, n);
+    expect(await page.locator('#plan').count()).toBe(1);
+  });
+
+  it('opens a suggestion from the grid with the RCM already picked', async () => {
+    await signIn('lucia');
+    await page.getByRole('button', { name: 'Next week' }).click();
+    const g = page.locator('.ghost').first();
+    await g.scrollIntoViewIfNeeded();
+    const label = (await g.getAttribute('aria-label'))!;
+    await g.click();
+    const who = label.replace('Suggested: ', '').split(',')[0];
+    expect(await page.getByLabel('RCM').locator('option:checked').innerText()).toContain(who);
+  });
+
+  it('hides plan and notifications from RCMs and viewers', async () => {
+    await signIn('regina');
+    await page.locator('.shift').first().waitFor();
+    expect(await page.locator('#plan').count()).toBe(0);
+    expect(await page.getByRole('button', { name: /^Notifications/ }).count()).toBe(0);
   });
 });
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   zonedParts, zonedToUtc, tzOffsetMinutes, weekStart, addDays, dayStartMs, isoWeek,
-  hm, minLabel, dur, dayLabel, rangeLabel, tzLabel, isValidTimeZone, sameDate, dateValue, parseDateValue,
+  hm, minLabel, dur, dayLabel, rangeLabel, tzLabel, isValidTimeZone, sameDate, dateValue, parseDateValue, wallSpan,
 } from './time';
 
 const utc = (s: string) => Date.parse(s);
@@ -96,5 +96,21 @@ describe('labels', () => {
     expect(isValidTimeZone('Europe/Budapest')).toBe(true);
     expect(isValidTimeZone('Mars/Olympus')).toBe(false);
     expect(isValidTimeZone('')).toBe(false);
+  });
+});
+
+describe('wallSpan (where a block sits in a day column)', () => {
+  const sun = { y: 2026, m: 10, d: 25 }; // DST ends in Rome: the day has 25 hours
+  const d0 = dayStartMs(sun, 'Europe/Rome'), dEnd = dayStartMs(addDays(sun, 1), 'Europe/Rome');
+  it('uses the wall clock, so 10:00 is drawn at 10:00 even on the 25-hour day', () => {
+    expect(wallSpan(utc('2026-10-25T09:00:00Z'), utc('2026-10-25T11:00:00Z'), d0, dEnd, 'Europe/Rome')).toEqual({ from: 600, to: 720 });
+  });
+  it('clips blocks that start the day before or end the day after', () => {
+    expect(wallSpan(d0 - 3_600_000, utc('2026-10-24T23:00:00Z'), d0, dEnd, 'Europe/Rome')).toEqual({ from: 0, to: 60 });
+    expect(wallSpan(utc('2026-10-25T21:00:00Z'), dEnd + 3_600_000, d0, dEnd, 'Europe/Rome')).toEqual({ from: 1320, to: 1440 });
+  });
+  it('is the same as elapsed time on a normal day', () => {
+    const mon = { y: 2026, m: 10, d: 19 };
+    expect(wallSpan(utc('2026-10-19T08:00:00Z'), utc('2026-10-19T10:30:00Z'), dayStartMs(mon, 'Europe/Rome'), dayStartMs(addDays(mon, 1), 'Europe/Rome'), 'Europe/Rome')).toEqual({ from: 600, to: 750 });
   });
 });

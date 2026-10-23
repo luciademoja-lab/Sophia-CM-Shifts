@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizeCoverage, validateDaySlots, validateCoverage, isRequired, hasTarget,
-  uncoveredRuns, coverageText, suggestNextSlot, type Coverage,
+  uncoveredRuns, coverageText, suggestNextSlot, isRequiredRange, type Coverage,
 } from './coverage';
 
 const utc = (s: string) => Date.parse(s);
@@ -67,6 +67,18 @@ describe('isRequired', () => {
     expect(hasTarget(null)).toBe(false);
     expect(hasTarget(rome({}))).toBe(false);
     expect(hasTarget(cov)).toBe(true);
+  });
+});
+
+describe('isRequiredRange (does a booking need approval?)', () => {
+  const cov = rome({ 5: [{ start: 9 * 60, end: 12 * 60 }] });
+  it('is true only when the whole range is required', () => {
+    expect(isRequiredRange(cov, utc('2026-10-23T07:00:00Z'), utc('2026-10-23T10:00:00Z'))).toBe(true); // 09–12 Rome
+    expect(isRequiredRange(cov, utc('2026-10-23T09:00:00Z'), utc('2026-10-23T11:00:00Z'))).toBe(false); // 11–13 Rome
+  });
+  it('treats every hour as required when no target is set', () => {
+    expect(isRequiredRange(null, 0, 3_600_000)).toBe(true);
+    expect(isRequiredRange(rome({}), 0, 3_600_000)).toBe(true);
   });
 });
 

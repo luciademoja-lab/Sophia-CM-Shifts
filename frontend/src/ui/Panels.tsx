@@ -1,7 +1,10 @@
 import { coverageText, hasTarget, type Coverage, type Weekday } from '../lib/coverage';
-import { canReport, historyText, latestEntryPerShift, personColor, weekHours, type LogEntry, type Profile, type Report, type Shift } from '../lib/shifts';
+import { useState } from 'react';
+import { canReport, historyFor, historyText, latestEntryPerShift, personColor, weekHours, type LogEntry, type Profile, type Report, type Shift } from '../lib/shifts';
 import { DAYS_LONG, dayLabel, dur, hm, tzLabel } from '../lib/time';
 import { availableMinutes, type Availability } from '../lib/availability';
+import type { Plan, Suggestion } from '../lib/plan';
+import { errorText } from './errors';
 import { personName } from './Grid';
 import { reportSummary } from './ReportEditor';
 
@@ -9,7 +12,7 @@ export function HoursPanel({ shifts, reports, availability, profiles, me, from, 
   const hours = weekHours(shifts, from, to, reports);
   const offered = Object.fromEntries(Object.entries(availability).map(([id, a]) => [id, availableMinutes(a, from, to)]));
   const rows = [...hours, ...Object.keys(offered).filter((id) => offered[id] > 0 && profiles[id]?.active && !hours.some((h) => h.owner === id))
-    .map((owner) => ({ owner, booked: 0, covering: 0, open: 0, worked: 0, reported: 0 }))];
+    .map((owner) => ({ owner, booked: 0, covering: 0, open: 0, pending: 0, worked: 0, reported: 0 }))];
   return (
     <div className="panel wide">
       <div className="panel-head"><h2>Availability and hours this week</h2><button className="btn" type="button" onClick={onExport}>Export CSV</button></div>
@@ -68,23 +71,45 @@ type HistoryProps = {
   log: LogEntry[]; profiles: Record<string, Profile>; tz: string;
   shifts: Shift[]; reports: Record<string, Report>; me: Profile | null; now: number;
   onReport: (s: Shift) => void;
+  /** admins only: remove an entry */
+  onDelete?: (id: string) => Promise<void>;
 };
 
 /** Changes to shifts. Each shift's newest entry carries its report, editable by the owner and admins. */
-export function HistoryPanel({ log, profiles, tz, shifts, reports, me, now, onReport }: HistoryProps) {
+export function HistoryPanel({ log, profiles, tz, shifts, reports, me, now, onReport, onDelete }: HistoryProps) {
   const name = (id: string | null) => (id && profiles[id]?.fullName) || 'Someone';
-  const items = [...log].sort((a, b) => b.at - a.at).slice(0, 80);
+  const [person, setPerson] = useState('');
+  const seesAll = me?.role === 'admin' || me?.role === 'viewer';
+  const choices = Object.values(profiles).filter((p) => p.role !== 'viewer').sort((a, b) => a.fullName.localeCompare(b.fullName));
+  const [armed, setArmed] = useState<string | null>(null);
+  const items = historyFor(log, me, seesAll ? person || null : null).sort((a, b) => b.at - a.at).slice(0, 80);
   const latest = latestEntryPerShift(log);
   const byId = new Map(shifts.map((s) => [s.id, s]));
   return (
     <div className="panel">
-      <div className="panel-head"><h2>History</h2></div>
+      <div className="panel-head">
+        <h2>History</h2>
+        {seesAll && (
+          <div className="histfilter">
+            <label className="eyebrow" htmlFor="hist-person">Show</label>
+            <select id="hist-person" value={person} onChange={(e) => setPerson(e.target.value)}>
+              <option value="">Everyone</option>
+              {choices.map((p) => <option key={p.id} value={p.id}>{p.fullName}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
       <ul className="hist" id="history">
         {!items.length ? <li className="empty">Changes to shifts will appear here.</li> : items.map((l) => (
           <li key={l.id}>
             <time>{dayLabel(l.at, tz)} {hm(l.at, tz)}</time>
             <div>
               <span>{historyText(l, name, tz)}</span>
+              {onDelete && (
+                <button type="button" className="del" aria-label={armed === l.id ? 'Click again to delete this entry' : 'Delete this entry'} title={armed === l.id ? 'Click again to delete' : 'Delete entry'}
+                  onClick={() => { if (armed === l.id) { setArmed(null); onDelete(l.id).catch(() => undefined); } else setArmed(l.id); }}
+                >{armed === l.id ? 'Delete?' : '×'}</button>
+              )}
               {l.shiftId && latest.has(l.id) && (() => {
                 const r = reports[l.shiftId], s = byId.get(l.shiftId);
                 const editable = !!s && canReport(s, me, now);
@@ -100,6 +125,71 @@ export function HistoryPanel({ log, profiles, tz, shifts, reports, me, now, onRe
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+type PlanProps = {
+  plan: Plan; profiles: Record<string, Profile>; tz: string;
+  showGhosts: boolean; onToggleGhosts: () => void;
+  onAssign: (s: Suggestion) => Promise<void>;
+  onAssignAll: () => Promise<void>;
+};
+
+/** Admins: required hours this week, what each RCM offered, and a balanced suggestion. */
+export function PlanPanel({ plan, profiles, tz, showGhosts, onToggleGhosts, onAssign, onAssignAll }: PlanProps) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const name = (id: string) => profiles[id]?.fullName || 'Someone';
+  const open = plan.requiredMinutes - plan.coveredMinutes;
+  const go = async (fn: () => Promise<void>) => {
+    setBusy(true); setError(null);
+    try { await fn(); } catch (e) { setError(errorText(e, tz)); } finally { setBusy(false); }
+  };
+  return (
+    <div className="panel wide plan" id="plan">
+      <div className="panel-head">
+        <h2>Suggested plan</h2>
+        <div className="row">
+          {plan.suggestions.length > 0 && <button className="btn" type="button" onClick={onToggleGhosts}>{showGhosts ? 'Hide on grid' : 'Show on grid'}</button>}
+          {plan.suggestions.length > 0 && <button className="btn primary" type="button" disabled={busy} onClick={() => go(onAssignAll)}>Assign all</button>}
+        </div>
+      </div>
+      {plan.requiredMinutes === 0 ? <p className="empty">Set the required coverage to get suggestions.</p> : (<>
+        <div className="nums">
+          <div><span className="eyebrow">Required</span><b>{dur(plan.requiredMinutes)}</b></div>
+          <div><span className="eyebrow">Covered</span><b>{dur(plan.coveredMinutes)}</b></div>
+          <div><span className="eyebrow">Still open</span><b>{dur(open)}</b></div>
+          <div><span className="eyebrow">Nobody available</span><b className={plan.noOneMinutes ? 'bad' : ''}>{plan.noOneMinutes ? dur(plan.noOneMinutes) : '–'}</b></div>
+        </div>
+        <table>
+          <thead><tr><th>RCM</th><th className="num">Offered on open hours</th><th className="num">Booked</th><th className="num">Suggested</th><th className="num">Total</th></tr></thead>
+          <tbody>
+            {plan.perPerson.map((p) => (
+              <tr key={p.id}>
+                <td><div className="person"><span className="dot" style={{ background: personColor(profiles[p.id]?.username || p.id) }} />{name(p.id)}</div></td>
+                <td className="num">{p.offeredMinutes ? dur(p.offeredMinutes) : '–'}</td>
+                <td className="num">{p.bookedMinutes ? dur(p.bookedMinutes) : '–'}</td>
+                <td className="num">{p.targetMinutes ? '+' + dur(p.targetMinutes) : '–'}</td>
+                <td className="num">{dur(p.bookedMinutes + p.targetMinutes)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {plan.suggestions.length ? (
+          <ul aria-label="Suggested shifts">
+            {plan.suggestions.map((s) => (
+              <li key={s.owner + s.start}>
+                <span className="dot" style={{ background: personColor(profiles[s.owner]?.username || s.owner) }} />
+                <span>{name(s.owner)} · <span className="mono">{dayLabel(s.start, tz)} {hm(s.start, tz)}–{hm(s.end, tz)}</span> · {dur((s.end - s.start) / 60000)}</span>
+                <button className="btn small" type="button" disabled={busy} onClick={() => go(() => onAssign(s))}>Assign</button>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="empty">{open ? 'Nobody is available for the hours still open.' : 'All required hours are covered.'}</p>}
+        <p className="note">The plan shares the open required hours so everyone's total for the week is as even as their availability allows. RCMs available only a few hours get all of them. Suggested shifts are at least 30 minutes.</p>
+        {error && <p className="err" role="alert">{error}</p>}
+      </>)}
     </div>
   );
 }

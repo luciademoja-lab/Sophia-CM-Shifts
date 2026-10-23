@@ -74,13 +74,18 @@ describe('shift reports', () => {
     db.exec({ id: regina }, `select delete_report('${shift}')`);
     expect(db.value('super', 'select count(*) from shift_reports')).toBe(0);
     save(regina, 150, 'x');
-    db.exec({ id: regina }, `select delete_shift('${shift}')`);
+    db.exec({ id: lucia }, `select delete_shift('${shift}')`); // past day: only an admin can delete it
     expect(db.value('super', 'select count(*) from shift_reports')).toBe(0);
   });
 
   it('is not possible on a shift that someone else took over', () => {
+    // cover is asked before the shift starts; move the pair into the past afterwards
+    const later = db.value<string>({ id: regina }, `select book_shift(${future(8)}, ${future(11)}, null)`);
+    db.exec('super', `delete from shifts where id = '${shift}'`);
+    shift = later;
     db.exec({ id: regina }, `select ask_cover('${shift}')`);
     const cover = db.value<string>({ id: kris }, `select take_shift('${shift}', null)`);
+    db.exec('super', `update shifts set starts_at = starts_at - interval '4 days', ends_at = ends_at - interval '4 days'`);
     expect(failure(() => save(regina, 60, 'x'))).toMatch(/RCM_INVALID/);
     save(kris, 180, 'Covered for Regina', cover);
     expect(db.value('super', `select owner from shift_reports where shift_id = '${cover}'`)).toBe(kris);

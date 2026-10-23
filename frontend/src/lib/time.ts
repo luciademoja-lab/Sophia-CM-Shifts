@@ -109,6 +109,16 @@ export function minuteOfDay(ms: number, tz: string): number {
   return p.hour * 60 + p.minute;
 }
 
+/**
+ * Minutes from midnight (wall clock) covered by [start, end) inside one day column.
+ * Positions follow the clock, not elapsed time, so DST days (23 or 25 hours) line up.
+ */
+export function wallSpan(start: number, end: number, d0: number, dEnd: number, tz: string): { from: number; to: number } {
+  const from = start <= d0 ? 0 : minuteOfDay(start, tz);
+  const to = end >= dEnd ? 1440 : minuteOfDay(end, tz);
+  return { from, to: Math.max(to, from) };
+}
+
 export function minLabel(min: number): string {
   return `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
 }

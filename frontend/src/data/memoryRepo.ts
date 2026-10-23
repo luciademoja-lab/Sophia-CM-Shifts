@@ -1,14 +1,14 @@
 // In-memory repository with the same rules as the database functions.
 // Used for demo mode (no Supabase configured) and for end-to-end tests.
-import { normalizeCoverage, validateCoverage, validateDaySlots, type Coverage, type CoverageDays, type Slot } from '../lib/coverage';
+import { isRequired, normalizeCoverage, validateCoverage, validateDaySlots, type Coverage, type CoverageDays, type Slot } from '../lib/coverage';
 import { isAvailable, type Availability } from '../lib/availability';
-import { findOverlap, type LogAction, type LogEntry, type Profile, type Report, type Role, type Shift } from '../lib/shifts';
+import { canChange, findOverlap, historyFor, type LogAction, type LogEntry, type Profile, type Report, type Role, type Shift } from '../lib/shifts';
 import { isValidTimeZone } from '../lib/time';
 import { normalizeUsername, validatePassword, validateUsername } from '../../../backend/supabase/functions/_shared/username.ts';
 import { RepoError, type NewLogin, type Repo, type Snapshot } from './repo';
 
 export type SeedUser = { username: string; fullName: string; role: Role; password: string; timezone?: string | null; availability?: CoverageDays };
-export type Seed = { users: SeedUser[]; coverage?: Coverage | null; shifts?: Array<{ owner: string; start: number; end: number; status?: 'booked' | 'open' }> };
+export type Seed = { users: SeedUser[]; now?: () => number; coverage?: Coverage | null; shifts?: Array<{ owner: string; start: number; end: number; status?: 'booked' | 'open' }> };
 
 let counter = 0;
 const newId = (p: string) => `${p}${Date.now().toString(36)}${(counter++).toString(36)}`;
@@ -20,6 +20,8 @@ export function createMemoryRepo(seed: Seed): Repo {
   let shifts: Shift[] = [];
   const log: LogEntry[] = [];
   const reports = new Map<string, Report>();
+  const seen = new Map<string, number>();
+  const now = seed.now || (() => Date.now());
   const weeks = new Map<string, CoverageDays>();
   const exceptions = new Map<string, Record<string, Slot[]>>();
   let coverage: Coverage | null = seed.coverage ?? null;
@@ -57,6 +59,18 @@ export function createMemoryRepo(seed: Seed): Repo {
   const rcmAvailable = (p: Profile, owner: string, start: number, end: number) => {
     if (p.role === 'rcm' && !isAvailable(availabilityOf(owner), start, end)) fail('invalid', 'This is outside your availability. Add these hours to your availability first.');
   };
+  // Same rule as the database: inside required hours (or no target) and inside availability.
+  const requiredAll = (start: number, end: number) => {
+    const c = coverage ? normalizeCoverage(coverage) : null;
+    if (!c || !Object.keys(c.days).length) return true;
+    for (let t = start; t < end; t += 15 * 60_000) if (!isRequired(t + 1, c)) return false;
+    return true;
+  };
+  const statusFor = (p: Profile, owner: string, start: number, end: number): 'booked' | 'pending' =>
+    p.role === 'rcm' && !(isAvailable(availabilityOf(owner), start, end) && requiredAll(start, end)) ? 'pending' : 'booked';
+  const lockPast = (p: Profile, s: Shift, what: string) => {
+    if (p.role === 'rcm' && !canChange(s, p, now())) fail('forbidden', `Shifts of past days can only be ${what} by an admin.`);
+  };
   const availabilityOwner = (p: Profile, owner: string | null | undefined) => {
     const o = owner || p.id;
     if (o !== p.id && p.role !== 'admin') fail('forbidden', 'Only admins can change someone else\'s availability.');
@@ -75,7 +89,7 @@ export function createMemoryRepo(seed: Seed): Repo {
     return s;
   };
   const write = (actor: string, owner: string, action: LogAction, s: { id: string; start: number; end: number }, fromOwner: string | null = null) => {
-    log.push({ id: newId('l'), at: Date.now(), actor, owner, action, start: s.start, end: s.end, fromOwner, shiftId: s.id });
+    log.push({ id: newId('l'), at: now(), actor, owner, action, start: s.start, end: s.end, fromOwner, shiftId: s.id });
   };
 
   const repo: Repo = {
@@ -94,7 +108,9 @@ export function createMemoryRepo(seed: Seed): Repo {
         me: me ? { ...profiles.get(me)! } : null,
         profiles: Object.fromEntries([...profiles.values()].map((p) => [p.id, { ...p }])),
         shifts: shifts.filter((s) => s.end > from && s.start < to).map((s) => ({ ...s })).sort((a, b) => a.start - b.start),
-        log: log.slice(-80).map((l) => ({ ...l })),
+        log: historyFor(log, me ? profiles.get(me)! : null, null).slice(-80).map((l) => ({ ...l })),
+        notificationsSeenAt: me ? seen.get(me) ?? 0 : 0,
+        requests: shifts.filter((s) => s.status === 'pending').map((s) => ({ ...s })).sort((a, b) => a.start - b.start),
         coverage: coverage ? normalizeCoverage(coverage) : null,
         reports: Object.fromEntries([...reports.values()].map((r) => [r.shiftId, { ...r }])),
         availability: Object.fromEntries([...profiles.values()].filter((p) => p.role !== 'viewer').map((p) => [p.id, structuredClone(availabilityOf(p.id))])),
@@ -111,24 +127,28 @@ export function createMemoryRepo(seed: Seed): Repo {
       const p = writer();
       const o = owner || p.id;
       if (o !== p.id && p.role !== 'admin') fail('forbidden', 'Only admins can book for someone else.');
-      activeRcm(o); range(start, end); rcmAvailable(p, o, start, end); free(start, end, []);
+      activeRcm(o); range(start, end); free(start, end, []);
       const id = newId('s');
-      shifts.push({ id, owner: o, start, end, status: 'booked', coversId: null });
-      write(p.id, o, restore ? 'restored' : 'booked', { id, start, end }); changed();
+      const status = statusFor(p, o, start, end);
+      shifts.push({ id, owner: o, start, end, status, coversId: null });
+      write(p.id, o, status === 'pending' ? 'requested' : restore ? 'restored' : 'booked', { id, start, end }); changed();
       return id;
     },
     async updateShift(id, start, end, owner) {
       const p = current(); const s = manageable(id, p);
-      if (s.status !== 'booked') fail('invalid', 'Only booked shifts can be changed.');
+      if (s.status !== 'booked' && s.status !== 'pending') fail('invalid', 'Only booked shifts and requests can be changed.');
+      lockPast(p, s, 'changed');
       const o = owner || s.owner;
       if (o !== s.owner) { if (p.role !== 'admin') fail('forbidden', 'Only admins can reassign shifts.'); activeRcm(o); }
-      range(start, end); rcmAvailable(p, o, start, end); free(start, end, [s.id]);
-      Object.assign(s, { start, end, owner: o });
-      write(p.id, o, 'edited', s); changed();
+      range(start, end); free(start, end, [s.id]);
+      const status = p.role === 'admin' ? s.status : statusFor(p, o, start, end);
+      Object.assign(s, { start, end, owner: o, status });
+      write(p.id, o, status === 'pending' && p.role === 'rcm' ? 'requested' : 'edited', s); changed();
     },
     async deleteShift(id) {
       const p = current(); const s = manageable(id, p);
       if (s.status === 'covered') fail('invalid', 'This shift was taken over; delete the cover shift instead.');
+      lockPast(p, s, 'deleted');
       shifts = shifts.filter((x) => x.id !== id);
       reports.delete(id);
       if (s.coversId) {
@@ -141,6 +161,7 @@ export function createMemoryRepo(seed: Seed): Repo {
     async askCover(id) {
       const p = current(); const s = manageable(id, p);
       if (s.status !== 'booked' || s.coversId) fail('invalid', 'Only your own booked shifts can be put up for cover.');
+      if (s.start <= now()) fail('invalid', 'This shift has already started.');
       s.status = 'open'; write(p.id, s.owner, 'ask', s); changed();
     },
     async cancelAsk(id) {
@@ -175,10 +196,11 @@ export function createMemoryRepo(seed: Seed): Repo {
     async saveReport(shiftId, workedMinutes, notes) {
       const p = writer(); const s = manageable(shiftId, p);
       if (s.status === 'covered') fail('invalid', 'This shift was taken over; the cover shift gets the report.');
-      if (s.start > Date.now()) fail('invalid', 'You can report on a shift once it has started.');
+      if (s.status === 'pending') fail('invalid', 'This shift is waiting for an admin to approve it.');
+      if (s.start > now()) fail('invalid', 'You can report on a shift once it has started.');
       if (!(workedMinutes >= 0 && workedMinutes <= 1440)) fail('invalid', 'Worked hours must be between 0 and 24.');
       if (notes.length > 4000) fail('invalid', 'The report is too long.');
-      reports.set(shiftId, { shiftId, owner: s.owner, workedMinutes, notes: notes.trim(), updatedAt: Date.now(), updatedBy: p.id });
+      reports.set(shiftId, { shiftId, owner: s.owner, workedMinutes, notes: notes.trim(), updatedAt: now(), updatedBy: p.id });
       write(p.id, s.owner, 'reported', s); changed();
     },
     async deleteReport(shiftId) {
@@ -201,6 +223,32 @@ export function createMemoryRepo(seed: Seed): Repo {
         ex[day] = [...slots].sort((a, b) => a.start - b.start).map((s) => ({ start: s.start, end: s.end }));
       }
       exceptions.set(o, ex); changed();
+    },
+
+    async approveShift(id) {
+      const p = admin('Only admins can approve requests.');
+      const s = shifts.find((x) => x.id === id);
+      if (!s) return fail('not_found', 'That request no longer exists.');
+      if (s.status !== 'pending') fail('invalid', 'This shift is not waiting for approval.');
+      s.status = 'booked'; write(p.id, s.owner, 'approved', s); changed();
+    },
+    async rejectShift(id) {
+      const p = admin('Only admins can reject requests.');
+      const s = shifts.find((x) => x.id === id);
+      if (!s) return fail('not_found', 'That request no longer exists.');
+      if (s.status !== 'pending') fail('invalid', 'This shift is not waiting for approval.');
+      shifts = shifts.filter((x) => x.id !== id);
+      write(p.id, s.owner, 'rejected', s); changed();
+    },
+    async deleteLog(id) {
+      admin('Only admins can delete history entries.');
+      const i = log.findIndex((l) => l.id === id);
+      if (i >= 0) log.splice(i, 1);
+      changed();
+    },
+    async markNotificationsSeen() {
+      const p = admin('Only admins have notifications.');
+      seen.set(p.id, now()); changed();
     },
 
     async createLogin(l: NewLogin) {

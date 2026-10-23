@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestDb, failure, alwaysAvailable } from './db';
 
-const T = (h: number) => `'2026-10-26T00:00:00Z'::timestamptz + interval '${h} hours'`;
+// a day next week, so the tests keep working whatever today is
+const T = (h: number) => `(date_trunc('day', now() at time zone 'UTC') at time zone 'UTC' + interval '7 days' + interval '${h} hours')`;
 
 // Max and Adrien see the whole board but cannot change anything.
 describe('read-only viewers', () => {

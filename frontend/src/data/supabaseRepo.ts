@@ -62,13 +62,15 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
     },
     async load(from, to): Promise<Snapshot> {
       const uid = (await sb.auth.getSession()).data.session?.user.id ?? null;
-      const [p, s, l, c, aw, ad] = await Promise.all([
+      const [p, s, l, c, aw, ad, ns, rq] = await Promise.all([
         sb.from('profiles').select('id, username, full_name, role, timezone, active'),
         sb.from('shifts').select('id, owner, starts_at, ends_at, status, covers_id').lt('starts_at', iso(to)).gt('ends_at', iso(from)).order('starts_at'),
         sb.from('shift_log').select('id, at, actor, owner, action, starts_at, ends_at, from_owner, shift_id').order('at', { ascending: false }).limit(80),
         sb.from('coverage').select('tz, days').maybeSingle(),
         sb.from('availability').select('owner, days'),
         sb.from('availability_days').select('owner, day, slots').gte('day', new Date(from - 2 * 86_400_000).toISOString().slice(0, 10)).lte('day', new Date(to + 2 * 86_400_000).toISOString().slice(0, 10)),
+        sb.from('notification_seen').select('seen_at').maybeSingle(),
+        sb.from('shifts').select('id, owner, starts_at, ends_at, status, covers_id').eq('status', 'pending').order('starts_at'),
       ]);
       const profiles = Object.fromEntries((check(p) as ProfileRow[]).map((r) => [r.id, toProfile(r)]));
       const shifts = (check(s) as ShiftRow[]).map(toShift);
@@ -87,11 +89,16 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
       for (const row of check(ad) as Array<{ owner: string; day: string; slots: Slot[] }>) {
         if (availability[row.owner]) availability[row.owner].days[row.day] = row.slots;
       }
-      return { me: uid ? profiles[uid] ?? null : null, profiles, shifts, log, coverage: normalizeCoverage(check(c)), reports, availability };
+      const seenRow = check(ns) as { seen_at: string } | null;
+      return {
+        me: uid ? profiles[uid] ?? null : null, profiles, shifts, log, coverage: normalizeCoverage(check(c)), reports, availability,
+        notificationsSeenAt: seenRow ? Date.parse(seenRow.seen_at) : 0,
+        requests: (check(rq) as ShiftRow[]).map(toShift),
+      };
     },
     subscribe(onChange) {
       const ch = sb.channel('rcm-board');
-      for (const table of ['shifts', 'shift_log', 'coverage', 'profiles', 'shift_reports', 'availability', 'availability_days']) {
+      for (const table of ['shifts', 'shift_log', 'coverage', 'profiles', 'shift_reports', 'availability', 'availability_days', 'notification_seen']) {
         ch.on('postgres_changes', { event: '*', schema: 'public', table }, () => onChange());
       }
       ch.subscribe();
@@ -120,6 +127,10 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
     async setAvailabilityDay(day, slots, owner) {
       check(await sb.rpc('set_availability_day', { p_day: day, p_slots: slots, p_owner: owner ?? null }));
     },
+    async approveShift(id) { check(await sb.rpc('approve_shift', { p_id: id })); },
+    async rejectShift(id) { check(await sb.rpc('reject_shift', { p_id: id })); },
+    async deleteLog(id) { check(await sb.rpc('delete_log', { p_id: Number(id) })); },
+    async markNotificationsSeen() { check(await sb.rpc('mark_notifications_seen')); },
     async deleteReport(shiftId) { check(await sb.rpc('delete_report', { p_shift: shiftId })); },
 
     async createLogin(l) {

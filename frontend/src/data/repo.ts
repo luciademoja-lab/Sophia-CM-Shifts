@@ -13,6 +13,10 @@ export type Snapshot = {
   coverage: Coverage | null;
   /** reports by shift id, for the shifts and history entries in the snapshot */
   reports: Record<string, Report>;
+  /** for admins: when they last looked at notifications (ms, 0 = never) */
+  notificationsSeenAt: number;
+  /** every request waiting for an admin, any week */
+  requests: Shift[];
   /** availability of every admin and RCM, by profile id */
   availability: Record<string, Availability>;
 };
@@ -40,6 +44,10 @@ export interface Repo {
   takeShift(id: string, forId?: string | null): Promise<string>;
   setCoverage(tz: string, days: CoverageDays): Promise<void>;
   saveReport(shiftId: string, workedMinutes: number, notes: string): Promise<void>;
+  approveShift(id: string): Promise<void>;
+  rejectShift(id: string): Promise<void>;
+  deleteLog(id: string): Promise<void>;
+  markNotificationsSeen(): Promise<void>;
   /** usual week; owner defaults to the signed-in user (admins can pass someone else) */
   setAvailability(week: CoverageDays, owner?: string | null): Promise<void>;
   /** exception for a local date "YYYY-MM-DD"; null removes it, [] means not available */

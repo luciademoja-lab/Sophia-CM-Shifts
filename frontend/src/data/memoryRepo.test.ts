@@ -3,7 +3,8 @@ import { createMemoryRepo } from './memoryRepo';
 import type { Repo } from './repo';
 
 const H = 3_600_000;
-const t0 = Date.parse('2026-10-26T00:00:00Z');
+const t0 = Date.parse('2026-10-26T00:00:00Z'); // a Monday
+const NOW = Date.parse('2026-10-23T12:00:00Z'); // the demo clock: the Friday before
 const allWeek = Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map((d) => [d, [{ start: 0, end: 1440 }]]));
 const users = [
   { username: 'lucia', fullName: 'Lucia De Mojà', role: 'admin' as const, password: 'demo2026pass', timezone: 'Europe/Rome' },
@@ -25,7 +26,7 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
   const snap = () => repo.load(t0 - 24 * H, t0 + 8 * 24 * H);
 
   beforeEach(async () => {
-    repo = createMemoryRepo({ users });
+    repo = createMemoryRepo({ users, now: () => NOW });
     await as('lucia');
     for (const p of Object.values((await snap()).profiles)) ids[p.username] = p.id;
   });
@@ -53,6 +54,7 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
     await as('kris');
     expect(await code(repo.bookShift(t0 + 9 * H, t0 + 11 * H))).toBe('overlap');
     await repo.bookShift(t0 + 10 * H, t0 + 12 * H);
+    await as('lucia'); // admins see the whole history
     const s = await snap();
     expect(s.shifts.map((x) => x.owner)).toEqual([ids.regina, ids.kris]);
     expect(s.log.map((l) => l.action)).toEqual(['booked', 'booked']);
@@ -79,6 +81,7 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
     expect(s.shifts.find((x) => x.id === id)?.status).toBe('covered');
     expect(s.shifts.find((x) => x.id === cover)).toMatchObject({ owner: ids.kris, coversId: id, status: 'booked' });
     await repo.deleteShift(cover);
+    await as('lucia');
     s = await snap();
     expect(s.shifts.find((x) => x.id === id)?.status).toBe('open');
     expect(s.log.map((l) => l.action)).toEqual(['booked', 'ask', 'took', 'gaveback']);
@@ -125,7 +128,7 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
   });
 
   it('lets the owner and admins report hours worked, once the shift has started', async () => {
-    const now = Date.now(), past = now - 5 * H;
+    const now = NOW, past = now - 5 * H;
     await as('regina');
     const id = await repo.bookShift(past, past + 3 * H);
     const later = await repo.bookShift(now + 24 * H, now + 26 * H);
@@ -166,13 +169,64 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
     await repo.setMyTimezone('UTC');
     await repo.setAvailability({ 1: [{ start: 8 * 60, end: 12 * 60 }] }); // t0 is a Monday
     await repo.bookShift(t0 + 8 * H, t0 + 10 * H);
-    expect(await code(repo.bookShift(t0 + 11 * H, t0 + 13 * H))).toBe('invalid');
+    await repo.bookShift(t0 + 11 * H, t0 + 13 * H); // outside availability: becomes a request
+    expect((await snap()).shifts.map((s) => s.status)).toEqual(['booked', 'pending']);
     await as('lucia');
     await repo.bookShift(t0 + 14 * H, t0 + 15 * H, ids.nora);
     expect(await code(repo.setAvailability({}, ids.max))).toBe('invalid');
     await repo.setAvailability({ 2: [{ start: 0, end: 60 }] }, ids.nora);
     await as('kris');
     expect(await code(repo.setAvailability({}, ids.nora))).toBe('forbidden');
+  });
+
+  it('sends a request when an RCM books outside the required hours, and lets admins decide', async () => {
+    await as('lucia');
+    await repo.setCoverage('UTC', { 1: [{ start: 8 * 60, end: 12 * 60 }] });
+    await as('regina');
+    const inside = await repo.bookShift(t0 + 8 * H, t0 + 10 * H);
+    const outside = await repo.bookShift(t0 + 13 * H, t0 + 14 * H);
+    let s = await snap();
+    expect(s.shifts.map((x) => [x.id, x.status])).toEqual([[inside, 'booked'], [outside, 'pending']]);
+    expect(s.log.map((l) => l.action)).toEqual(['booked', 'requested']);
+    expect(await code(repo.approveShift(outside))).toBe('forbidden');
+    await as('lucia');
+    await repo.approveShift(outside);
+    const again = (await repo.load(t0, t0 + 7 * 24 * H)).shifts.find((x) => x.id === outside);
+    expect(again?.status).toBe('booked');
+    await as('regina');
+    const third = await repo.bookShift(t0 + 15 * H, t0 + 16 * H);
+    await as('lucia');
+    await repo.rejectShift(third);
+    s = await snap();
+    expect(s.shifts.some((x) => x.id === third)).toBe(false);
+    expect(s.log.slice(-1)[0].action).toBe('rejected');
+  });
+
+  it('locks past days for RCMs and stops asking cover once a shift started', async () => {
+    await as('lucia');
+    const past = await repo.bookShift(NOW - 48 * H, NOW - 47 * H, ids.regina);
+    const started = await repo.bookShift(NOW - H, NOW + H, ids.regina);
+    await as('regina');
+    expect(await code(repo.deleteShift(past))).toBe('forbidden');
+    expect(await code(repo.updateShift(past, NOW - 48 * H, NOW - 47.5 * H))).toBe('forbidden');
+    expect(await code(repo.askCover(started))).toBe('invalid');
+  });
+
+  it('shows RCMs only their own history, lets admins delete entries, and tracks notifications', async () => {
+    await as('regina');
+    await repo.bookShift(t0 + 8 * H, t0 + 9 * H);
+    await as('kris');
+    await repo.bookShift(t0 + 9 * H, t0 + 10 * H);
+    expect((await snap()).log).toHaveLength(1);
+    await as('max');
+    expect((await snap()).log).toHaveLength(2);
+    expect(await code(repo.deleteLog((await snap()).log[0].id))).toBe('forbidden');
+    await as('lucia');
+    expect((await snap()).notificationsSeenAt).toBe(0);
+    await repo.deleteLog((await snap()).log[0].id);
+    expect((await snap()).log).toHaveLength(1);
+    await repo.markNotificationsSeen();
+    expect((await snap()).notificationsSeenAt).toBe(NOW);
   });
 
   it('notifies subscribers on every change', async () => {

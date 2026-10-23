@@ -59,6 +59,13 @@ export function isRequired(ms: number, c: Coverage | null): boolean {
   return (c.days[p.weekday as Weekday] || []).some((s) => min >= s.start && min < s.end);
 }
 
+/** Whole range inside the required hours (with no target set, every hour counts). */
+export function isRequiredRange(c: Coverage | null, start: number, end: number): boolean {
+  if (!hasTarget(c)) return true;
+  for (let t = start; t < end; t += QUARTER) if (!isRequired(Math.min(t + QUARTER / 2, (t + end) / 2), c)) return false;
+  return true;
+}
+
 export type Interval = { start: number; end: number };
 export type Run = { from: number; to: number }; // 15-minute slot indexes in the viewer's day, `to` exclusive
 

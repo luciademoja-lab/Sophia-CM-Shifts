@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Repo, Snapshot } from '../data/repo';
 import { hasTarget, uncoveredRuns } from '../lib/coverage';
 import { activeShifts, canWrite, findOverlap, onDutyAt, openInRange, personColor, toCsv, type Profile, type Shift } from '../lib/shifts';
@@ -9,18 +9,20 @@ import { errorText } from './errors';
 import { Grid, personName, type Overlay } from './Grid';
 import { AvailabilityForm } from './AvailabilityForm';
 import { Modal } from './Modal';
-import { CoveragePanel, HistoryPanel, HoursPanel } from './Panels';
+import { CoveragePanel, HistoryPanel, HoursPanel, PlanPanel } from './Panels';
+import { NotificationsModal, unreadCount } from './Notifications';
+import { suggestPlan, type Suggestion } from '../lib/plan';
 import { ShiftEditor, type EditorCtx } from './ShiftEditor';
 import { TeamModal } from './TeamModal';
 import { TimezonePicker } from './TimezonePicker';
 import { ReportEditor } from './ReportEditor';
 
 type Props = { repo: Repo; snap: Snapshot; tz: string; mon: PlainDate; onWeek: (delta: number | null) => void; loadError: string | null };
-type Dialog = { kind: 'shift'; ctx: EditorCtx } | { kind: 'report'; shift: Shift } | { kind: 'coverage' } | { kind: 'team' } | { kind: 'tz' } | { kind: 'availability'; owner: Profile } | null;
+type Dialog = { kind: 'shift'; ctx: EditorCtx } | { kind: 'report'; shift: Shift } | { kind: 'coverage' } | { kind: 'team' } | { kind: 'tz' } | { kind: 'availability'; owner: Profile } | { kind: 'notifications' } | null;
 type Toast = { msg: string; undo?: () => Promise<unknown> } | null;
 
 export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
-  const { me, profiles, shifts, coverage, log, reports, availability } = snap;
+  const { me, profiles, shifts, coverage, log, reports, availability, requests, notificationsSeenAt } = snap;
   const isAdmin = me?.role === 'admin';
   const canBook = canWrite(me);
   const isViewer = me?.role === 'viewer';
@@ -52,6 +54,23 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
       ? { mode: 'single', people: [{ id: shown, name: profiles[shown].fullName, color: personColor(profiles[shown].username), intervals: intervalsOf(shown) }] }
       : { mode: 'single', people: [] };
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(mon, i));
+  // Admins: balanced suggestion for the required hours still open this week (from now on).
+  const plan = useMemo(() => {
+    if (!isAdmin || !coverage) return null;
+    const from = Math.max(w0, Math.ceil(now / 900_000) * 900_000);
+    const required = availabilityIntervals({ tz: coverage.tz, week: coverage.days, days: {} }, w0, w1)
+      .map((iv) => ({ start: Math.max(iv.start, from), end: iv.end })).filter((iv) => iv.end > iv.start);
+    return suggestPlan({ required, shifts: shifts.filter((s) => s.end > w0 && s.start < w1), people: rcms.map((p) => ({ id: p.id, intervals: intervalsOf(p.id) })), minMinutes: 30 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, coverage, shifts, availability, profiles, w0, w1, Math.floor(now / 900_000)]);
+  const [showGhosts, setShowGhosts] = useState(true);
+  const ghosts = plan && showGhosts && shown === 'team' ? plan.suggestions : [];
+  const assign = (g: Suggestion) => repo.bookShift(g.start, g.end, g.owner === me?.id ? null : g.owner).then(() => undefined);
+  async function assignAll() {
+    for (const g of plan?.suggestions || []) await assign(g);
+  }
+  const unread = isAdmin ? unreadCount(log, requests, profiles, me, notificationsSeenAt) : 0;
+
   const editableAvailability = me && shown !== 'team' && profiles[shown] && (shown === me.id ? me.role === 'rcm' || me.role === 'admin' : isAdmin) ? profiles[shown] : null;
 
   async function quickDelete(s: Shift) {
@@ -102,6 +121,11 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
               {editableAvailability.id === me?.id ? 'My availability' : `Edit ${editableAvailability.fullName.split(' ')[0]}'s availability`}
             </button>
           )}
+          {isAdmin && (
+            <button className="btn" type="button" aria-label={`Notifications${unread ? `, ${unread} new` : ''}`} onClick={() => setDialog({ kind: 'notifications' })}>
+              Notifications{unread > 0 && <span className="badge" data-testid="notif-badge">{unread}</span>}
+            </button>
+          )}
           {isAdmin && <button className="btn" type="button" onClick={() => setDialog({ kind: 'team' })}>Team</button>}
           <button className="btn" type="button" onClick={() => repo.signOut()}>Sign out</button>
         </div>
@@ -135,6 +159,8 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
         <span><span className="sw mine" />Shift</span>
         <span><span className="sw open" />Needs cover</span>
         <span><span className="sw uncovered" />Required but not covered</span>
+        <span><span className="sw pending-sw" />Request (waiting for approval)</span>
+        {ghosts.length > 0 && <span><span className="sw ghost-sw" />Suggested shift (click to assign)</span>}
         {canBook && <span>Drag on the grid (or tap) to book. Click a shift to change it. Each name shows that RCM's own time zone.</span>}
       </div>
 
@@ -144,16 +170,19 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
         onNewShift={(r) => setDialog({ kind: 'shift', ctx: r })}
         onQuickDelete={quickDelete}
         overlay={overlay}
+        ghosts={ghosts}
+        onGhost={(g) => setDialog({ kind: 'shift', ctx: { newStart: g.start, newMinutes: Math.round((g.end - g.start) / 60000), owner: g.owner } })}
       />
 
       <section className="panels">
+        {plan && <PlanPanel plan={plan} profiles={profiles} tz={tz} showGhosts={showGhosts} onToggleGhosts={() => setShowGhosts((v) => !v)} onAssign={assign} onAssignAll={assignAll} />}
         <HoursPanel shifts={shifts} reports={reports} availability={availability} profiles={profiles} me={me} from={w0} to={w1} onExport={exportCsv} />
         <CoveragePanel coverage={coverage} isAdmin={isAdmin} onEdit={() => setDialog({ kind: 'coverage' })} />
-        <HistoryPanel log={log} profiles={profiles} tz={tz} shifts={shifts} reports={reports} me={me} now={now} onReport={(s) => setDialog({ kind: 'report', shift: s })} />
+        <HistoryPanel log={log} profiles={profiles} tz={tz} shifts={shifts} reports={reports} me={me} now={now} onReport={(s) => setDialog({ kind: 'report', shift: s })} onDelete={isAdmin ? (id) => repo.deleteLog(id) : undefined} />
       </section>
 
       {dialog?.kind === 'shift' && me && (
-        <ShiftEditor ctx={dialog.ctx} repo={repo} tz={tz} me={me} profiles={profiles} shifts={shifts} reports={reports} availability={availability} now={now} onClose={() => setDialog(null)} onReport={(s) => setDialog({ kind: 'report', shift: s })} />
+        <ShiftEditor ctx={dialog.ctx} repo={repo} tz={tz} me={me} profiles={profiles} shifts={shifts} reports={reports} availability={availability} coverage={coverage} now={now} onClose={() => setDialog(null)} onReport={(s) => setDialog({ kind: 'report', shift: s })} />
       )}
       {dialog?.kind === 'report' && me && (
         <ReportEditor repo={repo} shift={dialog.shift} report={reports[dialog.shift.id]} tz={tz} me={me} profiles={profiles} onClose={() => setDialog(null)} />
@@ -167,6 +196,9 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
         </Modal>
       )}
       {dialog?.kind === 'coverage' && <CoverageEditor repo={repo} coverage={coverage} fallbackTz={tz} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'notifications' && me && (
+        <NotificationsModal repo={repo} me={me} profiles={profiles} tz={tz} log={log} requests={requests} seenAt={notificationsSeenAt} onClose={() => setDialog(null)} />
+      )}
       {dialog?.kind === 'team' && me && <TeamModal repo={repo} me={me} profiles={profiles} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'tz' && (
         <Modal label="Time zone" onClose={() => setDialog(null)}>

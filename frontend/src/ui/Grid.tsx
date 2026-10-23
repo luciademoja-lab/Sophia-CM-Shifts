@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { uncoveredRuns, type Coverage, type Interval } from '../lib/coverage';
-import { activeShifts, canManage, personColor, type Profile, type Shift } from '../lib/shifts';
-import { DAYS, QUARTER, addDays, dateOf, dayStartMs, hm, minLabel, rangeLabel, sameDate, tzLabel, zonedToUtc, type PlainDate } from '../lib/time';
+import { activeShifts, canChange, personColor, type Profile, type Shift } from '../lib/shifts';
+import { DAYS, addDays, minuteOfDay, wallSpan, dateOf, dayStartMs, hm, minLabel, rangeLabel, sameDate, tzLabel, zonedToUtc, type PlainDate } from '../lib/time';
 
 const ROW = 11, SLOTS = 96;
 
@@ -24,6 +24,9 @@ type Props = {
   onNewShift: (r: NewShiftRequest) => void;
   onQuickDelete: (s: Shift) => void;
   overlay: Overlay;
+  /** admin view: suggested shifts drawn as dashed ghosts, click to prefill the editor */
+  ghosts?: Array<{ owner: string; start: number; end: number }>;
+  onGhost?: (g: { owner: string; start: number; end: number }) => void;
 };
 
 export function personName(profiles: Record<string, Profile>, id: string, me: Profile | null): string {
@@ -75,7 +78,7 @@ function DayColumn(p: Props & { date: PlainDate; act: Shift[]; booked: Shift[]; 
     const r = el.getBoundingClientRect();
     return Math.max(0, Math.min(SLOTS - 1, Math.floor((clientY - r.top) / ROW)));
   };
-  const isOnShift = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.('.shift');
+  const isOnShift = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.('.shift, .ghost');
 
   function down(e: RPointerEvent<HTMLDivElement>) {
     lastPointer.current = e.pointerType || 'mouse';
@@ -112,8 +115,8 @@ function DayColumn(p: Props & { date: PlainDate; act: Shift[]; booked: Shift[]; 
       }}
     >
       {p.overlay.people.map((person, i) => person.intervals.filter((iv) => iv.end > d0 && iv.start < dEnd).map((iv) => {
-        const a = Math.max(iv.start, d0), b = Math.min(iv.end, dEnd);
-        const style = { top: ((a - d0) / QUARTER) * ROW, height: ((b - a) / QUARTER) * ROW, ['--pc' as string]: person.color };
+        const w = wallSpan(iv.start, iv.end, d0, dEnd, tz);
+        const style = { top: (w.from / 15) * ROW, height: ((w.to - w.from) / 15) * ROW, ['--pc' as string]: person.color };
         return p.overlay.mode === 'single'
           ? <div key={person.id + iv.start} className="avail" style={style} title={`${person.name} available ${hm(iv.start, tz)}–${hm(iv.end, tz)}`} />
           : <div key={person.id + iv.start} className="lane" style={{ ...style, left: 1 + i * LANE }} title={`${person.name} available ${hm(iv.start, tz)}–${hm(iv.end, tz)}`} />;
@@ -124,7 +127,19 @@ function DayColumn(p: Props & { date: PlainDate; act: Shift[]; booked: Shift[]; 
       {p.act.filter((s) => s.end > d0 && s.start < dEnd).map((s) => (
         <ShiftBlock key={s.id} {...p} s={s} d0={d0} dEnd={dEnd} />
       ))}
-      {p.isToday && <div className="nowline" style={{ top: ((p.now - d0) / QUARTER) * ROW }} />}
+      {(p.ghosts || []).filter((g) => g.end > d0 && g.start < dEnd).map((g) => {
+        const w = wallSpan(g.start, g.end, d0, dEnd, tz);
+        const n = p.profiles[g.owner]?.fullName || 'Someone';
+        return (
+          <button key={'g' + g.owner + g.start} type="button" className="ghost"
+            style={{ top: (w.from / 15) * ROW, height: Math.max(((w.to - w.from) / 15) * ROW, ROW), ['--pc' as string]: personColor(p.profiles[g.owner]?.username || g.owner), ...(p.overlay.mode === 'lanes' && p.overlay.people.length ? { left: 3 + p.overlay.people.length * LANE } : {}) }}
+            aria-label={`Suggested: ${n}, ${rangeLabel(g.start, g.end, tz)}`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); p.onGhost?.(g); }}
+          ><span className="who">{n.split(' ')[0]}?</span></button>
+        );
+      })}
+      {p.isToday && <div className="nowline" style={{ top: (minuteOfDay(p.now, tz) / 15) * ROW }} />}
       {drag && (() => {
         const a = Math.min(drag.a, drag.b), b = Math.max(drag.a, drag.b) + 1;
         return <div className="dragbox" style={{ top: a * ROW, height: (b - a) * ROW }}>{minLabel(a * 15)}–{minLabel(b * 15)}</div>;
@@ -135,22 +150,22 @@ function DayColumn(p: Props & { date: PlainDate; act: Shift[]; booked: Shift[]; 
 
 function ShiftBlock(p: Props & { s: Shift; d0: number; dEnd: number }) {
   const { s, d0, dEnd, tz } = p;
-  const a = Math.max(s.start, d0), b = Math.min(s.end, dEnd);
-  const quarters = (b - a) / QUARTER;
-  const open = s.status === 'open';
+  const w = wallSpan(s.start, s.end, d0, dEnd, tz);
+  const quarters = (w.to - w.from) / 15;
+  const open = s.status === 'open', pending = s.status === 'pending';
   const name = personName(p.profiles, s.owner, p.me);
   const zone = personTz(p.profiles, s.owner, s.start);
   const color = personColor(p.profiles[s.owner]?.username || s.owner);
   return (
     <div
-      className={'shift' + (open ? ' is-open' : '') + (p.me && s.owner === p.me.id ? ' is-mine' : '')}
+      className={'shift' + (open ? ' is-open' : '') + (pending ? ' is-pending' : '') + (p.me && s.owner === p.me.id ? ' is-mine' : '')}
       role="button"
       tabIndex={0}
       style={{
-        top: ((a - d0) / QUARTER) * ROW, height: Math.max(quarters * ROW, ROW), ['--pc' as string]: color,
+        top: (w.from / 15) * ROW, height: Math.max(quarters * ROW, ROW), ['--pc' as string]: color,
         ...(p.overlay.mode === 'lanes' && p.overlay.people.length ? { left: 3 + p.overlay.people.length * LANE } : {}),
       }}
-      aria-label={`${name} (${zone}), ${rangeLabel(s.start, s.end, tz)}${open ? ', needs cover' : ''}`}
+      aria-label={`${name} (${zone}), ${rangeLabel(s.start, s.end, tz)}${open ? ', needs cover' : ''}${pending ? ', request waiting for approval' : ''}`}
       onClick={(e) => { e.stopPropagation(); p.onOpenShift(s); }}
       onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); p.onOpenShift(s); } }}
     >
@@ -158,7 +173,8 @@ function ShiftBlock(p: Props & { s: Shift; d0: number; dEnd: number }) {
       {quarters >= 2 && <span className="tz">{zone}</span>}
       {quarters >= 3 && <span className="when">{hm(s.start, tz)}–{hm(s.end, tz)}</span>}
       {open && quarters >= 4 && <span className="tag">Needs cover</span>}
-      {canManage(s, p.me) && (
+      {pending && quarters >= 4 && <span className="tag">Request</span>}
+      {canChange(s, p.me, p.now) && !open && (
         <button
           type="button" className="x" title="Delete shift" aria-label={`Delete ${name}'s shift, ${rangeLabel(s.start, s.end, tz)}`}
           onPointerDown={(e) => e.stopPropagation()}

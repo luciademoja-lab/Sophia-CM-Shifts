@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { TestDb, failure, alwaysAvailable } from './db';
 
-const T = (h: number) => `'2026-10-26T00:00:00Z'::timestamptz + interval '${h} hours'`;
+// a day next week, so the tests keep working whatever today is
+const T = (h: number) => `(date_trunc('day', now() at time zone 'UTC') at time zone 'UTC' + interval '7 days' + interval '${h} hours')`;
 
 describe('shifts', () => {
   let db: TestDb;
@@ -57,10 +58,12 @@ describe('shifts', () => {
       expect(failure(() => db.exec({ id: regina }, `insert into shifts (owner, starts_at, ends_at) values ('${regina}', ${T(1)}, ${T(2)})`))).toMatch(/permission denied/);
       expect(failure(() => db.exec({ id: regina }, `delete from shift_log`))).toMatch(/permission denied/);
     });
-    it('lets every signed-in user read the board', () => {
+    it('lets every signed-in user read the board, and each RCM their own history', () => {
       book(regina, 8, 10);
       expect(db.value({ id: kris }, 'select count(*) from shifts')).toBe(1);
-      expect(db.value({ id: kris }, 'select count(*) from shift_log')).toBe(1);
+      expect(db.value({ id: kris }, 'select count(*) from shift_log')).toBe(0);
+      expect(db.value({ id: regina }, 'select count(*) from shift_log')).toBe(1);
+      expect(db.value({ id: lucia }, 'select count(*) from shift_log')).toBe(1);
     });
   });
 

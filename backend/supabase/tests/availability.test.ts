@@ -65,28 +65,41 @@ describe('availability', () => {
     expect(failure(() => db.exec({ id: regina }, `delete from availability`))).toMatch(/permission denied/);
   });
 
-  it('lets RCMs book only inside their availability', () => {
+  // Booking rules use a UTC RCM and next week's Monday, so they keep working whatever today is.
+  const mon = (h: number) => `(date_trunc('week', now() at time zone 'UTC') at time zone 'UTC' + interval '7 days' + interval '${h} hours')`;
+  const bookAt = (as: string, a: number, b: number, owner: string | null = null) =>
+    db.value<string>({ id: as }, `select book_shift(${mon(a)}, ${mon(b)}, ${owner ? `'${owner}'` : 'null'})`);
+  const status = (id: string) => db.value('super', `select status from shifts where id = '${id}'`);
+  const utcRcm = () => { db.exec('super', `update profiles set timezone = 'UTC' where id in ('${regina}', '${kris}')`); };
+
+  it('books RCMs directly inside their availability, and as a request outside it', () => {
+    utcRcm();
     week(regina, { 1: [{ start: 480, end: 720 }] });
-    expect(() => book(regina, '2026-10-19T06:00Z', '2026-10-19T09:00Z')).not.toThrow();
-    expect(failure(() => book(regina, '2026-10-19T09:00Z', '2026-10-19T11:00Z'))).toMatch(/RCM_UNAVAILABLE/);
+    expect(status(bookAt(regina, 8, 10))).toBe('booked');
+    expect(status(bookAt(regina, 11, 13))).toBe('pending');
   });
 
   it('lets admins assign outside availability (the app warns them)', () => {
-    expect(() => book(lucia, '2026-10-20T06:00Z', '2026-10-20T09:00Z', regina)).not.toThrow();
+    utcRcm();
+    expect(status(bookAt(lucia, 20, 22, regina))).toBe('booked');
   });
 
-  it('lets RCMs move their shift only within availability', () => {
+  it('turns an RCM move outside availability into a request', () => {
+    utcRcm();
     week(regina, { 1: [{ start: 480, end: 720 }] });
-    const id = book(regina, '2026-10-19T06:00Z', '2026-10-19T08:00Z');
-    expect(failure(() => db.exec({ id: regina }, `select update_shift('${id}', ${ts('2026-10-19T09:00Z')}, ${ts('2026-10-19T11:00Z')}, null)`))).toMatch(/RCM_UNAVAILABLE/);
+    const id = bookAt(regina, 8, 10);
+    db.exec({ id: regina }, `select update_shift('${id}', ${mon(10)}, ${mon(13)}, null)`);
+    expect(status(id)).toBe('pending');
   });
 
   it('lets RCMs take a shift needing cover only inside their availability', () => {
+    utcRcm();
     week(regina, { 1: [{ start: 480, end: 720 }] });
-    const id = book(regina, '2026-10-19T06:00Z', '2026-10-19T08:00Z');
+    const id = bookAt(regina, 8, 10);
     db.exec({ id: regina }, `select ask_cover('${id}')`);
     expect(failure(() => db.exec({ id: kris }, `select take_shift('${id}', null)`))).toMatch(/RCM_UNAVAILABLE/);
-    week(kris, { 1: [{ start: 0, end: 360 }] }); // 00:00–06:00 Bogota = 05:00–11:00 UTC
+    week(kris, { 1: [{ start: 360, end: 720 }] });
     expect(() => db.exec({ id: kris }, `select take_shift('${id}', null)`)).not.toThrow();
+    db.exec('super', `update profiles set timezone = 'Europe/Budapest' where id = '${regina}'; update profiles set timezone = 'America/Bogota' where id = '${kris}'`);
   });
 });
