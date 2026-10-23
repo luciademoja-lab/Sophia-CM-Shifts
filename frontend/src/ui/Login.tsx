@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react';
 import type { Repo } from '../data/repo';
-import { DEMO_PASSWORD } from '../data/demoSeed';
 import { errorText } from './errors';
 import { Field } from './Modal';
 
@@ -33,9 +32,6 @@ export function Login({ repo }: { repo: Repo }) {
         <div className="actions"><button className="btn primary" type="submit" disabled={busy}>Sign in</button></div>
         <p className="note">Your login is created by Lucia or Aram. Lost your password? Ask them to reset it.</p>
       </form>
-      {repo.mode === 'demo' && (
-        <p className="banner">Demo mode, nothing is saved. Sign in as <b>lucia</b> or <b>aram</b> (admins), or <b>regina</b>, <b>kris</b>, <b>rana</b>, <b>olizhia</b> (RCMs), <b>max</b> or <b>adrien</b> (read-only). Password: <span className="mono">{DEMO_PASSWORD}</span></p>
-      )}
     </div>
   );
 }
