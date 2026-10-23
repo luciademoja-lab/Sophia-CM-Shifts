@@ -8,6 +8,7 @@ function fakeDeps(over: Partial<AdminDeps> = {}) {
     callerIsAdmin: async () => true,
     createUser: async (u) => { calls.push(['create', u]); return { id: 'new-id' }; },
     setPassword: async (id, pw) => { calls.push(['password', id, pw]); },
+    setRole: async (id, role) => { calls.push(['role', id, role]); },
     ...over,
   };
   return { deps, calls };
@@ -21,7 +22,7 @@ describe('admin-users function', () => {
     expect(calls).toEqual([['create', {
       email: `regina@${LOGIN_DOMAIN}`, password: 'shifts2026ok',
       user_metadata: { username: 'regina', full_name: 'Regina Nemeth' }, app_metadata: { role: 'rcm' },
-    }]]);
+    }], ['role', 'new-id', 'rcm']]);
   });
 
   it('creates read-only viewers (Max, Adrien)', async () => {
@@ -29,6 +30,14 @@ describe('admin-users function', () => {
     const res = await handleAdminUsers({ action: 'create', username: 'max', fullName: 'Max', password: 'shifts2026ok', role: 'viewer' }, deps);
     expect(res.status).toBe(200);
     expect((calls[0] as [string, { app_metadata: unknown }])[1].app_metadata).toEqual({ role: 'viewer' });
+    // Supabase adds app metadata after the insert, so the role is written explicitly afterwards.
+    expect(calls[1]).toEqual(['role', 'new-id', 'viewer']);
+  });
+
+  it('reports a failure to set the role instead of leaving a wrong role silently', async () => {
+    const { deps } = fakeDeps({ setRole: async () => { throw new Error('db down'); } });
+    const res = await handleAdminUsers({ action: 'create', username: 'max', fullName: 'Max', password: 'shifts2026ok', role: 'viewer' }, deps);
+    expect(res).toEqual({ status: 500, body: { error: 'The login max was created, but its role could not be set: db down. Set it from Team or the SQL editor.' } });
   });
 
   it('only admins may call it', async () => {

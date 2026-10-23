@@ -37,6 +37,10 @@ Deno.serve(async (req) => {
       if (error || !data.user) throw new Error(error?.message ?? 'no user returned');
       return { id: data.user.id };
     },
+    setRole: async (id, role) => {
+      const { error } = await service.from('profiles').update({ role }).eq('id', id);
+      if (error) throw new Error(error.message);
+    },
     setPassword: async (id, password) => {
       const { error } = await service.auth.admin.updateUserById(id, { password });
       if (error) throw new Error(error.message);
