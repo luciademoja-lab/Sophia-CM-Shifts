@@ -35,7 +35,7 @@ const toWeekly = (r: WeeklyRow): WeeklyReport => ({
 });
 const iso = (ms: number) => new Date(ms).toISOString();
 export const REALTIME_TABLES = ['shifts', 'shift_log', 'coverage', 'profiles', 'shift_reports', 'availability', 'availability_days',
-  'notification_seen', 'tasks', 'task_assignees', 'task_log', 'report_tasks', 'weekly_reports'];
+  'notification_seen', 'tasks', 'task_assignees', 'task_log', 'report_tasks', 'weekly_reports', 'task_items'];
 
 function check<T>(res: { data: T; error: { message: string } | null }): T {
   if (res.error) throw parseDbError(res.error.message);
@@ -76,7 +76,7 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
     },
     async load(from, to): Promise<Snapshot> {
       const uid = (await sb.auth.getSession()).data.session?.user.id ?? null;
-      const [p, s, l, c, aw, ad, ns, rq, tk, ta, tl, rt, wr] = await Promise.all([
+      const [p, s, l, c, aw, ad, ns, rq, tk, ta, tl, rt, wr, ti] = await Promise.all([
         sb.from('profiles').select('id, username, full_name, role, timezone, active'),
         sb.from('shifts').select('id, owner, starts_at, ends_at, status, covers_id').lt('starts_at', iso(to)).gt('ends_at', iso(from)).order('starts_at'),
         sb.from('shift_log').select('id, at, actor, owner, action, starts_at, ends_at, from_owner, shift_id').order('at', { ascending: false }).limit(80),
@@ -90,6 +90,7 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
         sb.from('task_log').select('id, at, actor, task_id, title, person, action, status').order('at', { ascending: false }).limit(100),
         sb.from('report_tasks').select('shift_id, task_id, owner, minutes'),
         sb.from('weekly_reports').select('id, owner, week, worked_minutes, message, status, submitted_at, decided_by, decided_at').order('week', { ascending: false }).limit(200),
+        sb.from('task_items').select('id, task_id, position, label, url, done_at, done_by').order('position'),
       ]);
       const profiles = Object.fromEntries((check(p) as ProfileRow[]).map((r) => [r.id, toProfile(r)]));
       const shifts = (check(s) as ShiftRow[]).map(toShift);
@@ -117,10 +118,12 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
         x.minutes += row.minutes; sums.set(k, x);
       }
       const assignees = check(ta) as AssigneeRow[];
+      const itemRows = check(ti) as Array<{ id: string; task_id: string; label: string; url: string; done_at: string | null; done_by: string | null }>;
       const tasks: Task[] = (check(tk) as TaskRow[]).map((t) => ({
         id: t.id, title: t.title, description: t.description, priority: t.priority, estimateMinutes: t.estimate_minutes, grabsFor: t.grabs_for || 'rcm',
         createdBy: t.created_by, createdAt: Date.parse(t.created_at),
         assignees: assignees.filter((a) => a.task_id === t.id).map((a) => ({ person: a.person, status: a.status, doneAt: a.done_at ? Date.parse(a.done_at) : null, updatedAt: Date.parse(a.updated_at) })),
+        items: itemRows.filter((i) => i.task_id === t.id).map((i) => ({ id: i.id, label: i.label, url: i.url, doneAt: i.done_at ? Date.parse(i.done_at) : null, doneBy: i.done_by })),
       }));
       const taskLog: TaskEvent[] = (check(tl) as TaskLogRow[]).reverse().map((e) => ({
         id: String(e.id), at: Date.parse(e.at), actor: e.actor, taskId: e.task_id, title: e.title, person: e.person, action: e.action, status: e.status,
@@ -172,6 +175,13 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
     async deleteTask(id) { check(await sb.rpc('delete_task', { p_id: id })); },
     async moveTask(id, person, status) { check(await sb.rpc('move_task', { p_id: id, p_person: person, p_status: status })); },
     async claimTask(id) { check(await sb.rpc('claim_task', { p_id: id })); },
+    async createContractTasks(t, minutesEach, people, items) {
+      return check(await sb.rpc('create_contract_tasks', {
+        p_title: t.title, p_description: t.description, p_priority: t.priority, p_minutes_each: minutesEach, p_people: people,
+        p_items: items.map((i) => ({ label: i.label, url: i.url })),
+      })) as string[];
+    },
+    async toggleTaskItem(id, done) { check(await sb.rpc('toggle_task_item', { p_item: id, p_done: done })); },
     async setAvailability(week, owner) {
       check(await sb.rpc('set_availability', { p_days: week, p_owner: owner ?? null }));
     },

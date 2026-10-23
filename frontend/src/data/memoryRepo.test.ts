@@ -329,4 +329,20 @@ describe('memoryRepo: reports, weekly reports and tasks', () => {
     await repo.deleteTask(shared);
     expect((await snap()).tasks.some((t) => t.id === shared)).toBe(false);
   });
+
+  it('shares the morning contracts out evenly and lets each RCM tick their own lines', async () => {
+    const list = Array.from({ length: 5 }, (_, i) => ({ label: `Poster ${i + 1}`, url: `https://www.upwork.com/ab/c/${i + 1}` }));
+    const input = { title: 'New posters', description: 'Steps', priority: 'high' as const, estimateMinutes: 1 };
+    expect(await code(repo.createContractTasks(input, 5, [ids.lucia], list))).toBe('invalid'); // admins are not RCMs
+    const created = await repo.createContractTasks(input, 5, [ids.regina, ids.kris], list);
+    expect(created).toHaveLength(2);
+    await as('regina');
+    const mine = (await snap()).tasks.filter((t) => t.items.length);
+    expect(mine.map((t) => [t.items.map((i) => i.label), t.estimateMinutes])).toEqual([[['Poster 1', 'Poster 2', 'Poster 3'], 15]]);
+    await repo.toggleTaskItem(mine[0].items[0].id, true);
+    expect((await snap()).tasks.find((t) => t.id === mine[0].id)!.items[0].doneBy).toBe(ids.regina);
+    await as('kris');
+    expect(await code(repo.toggleTaskItem(mine[0].items[1].id, true))).toBe('forbidden');
+    expect(await code(repo.createContractTasks(input, 5, [ids.kris], list))).toBe('forbidden');
+  });
 });

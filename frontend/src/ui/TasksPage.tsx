@@ -8,6 +8,7 @@ import {
 import { dur, shortDate, dateOf } from '../lib/time';
 import { errorText } from './errors';
 import { Field, Modal } from './Modal';
+import { ContractsModal } from './ContractsModal';
 
 type Props = { repo: Repo; me: Profile; profiles: Record<string, Profile>; tasks: Task[]; taskTime: TaskTimeRow[]; tz: string };
 
@@ -19,6 +20,7 @@ export function TasksPage({ repo, me, profiles, tasks, taskTime, tz }: Props) {
   const [person, setPerson] = useState('');
   const [donePage, setDonePage] = useState(0);
   const [editing, setEditing] = useState<Task | 'new' | null>(null);
+  const [sharing, setSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [over, setOver] = useState<TaskStatus | null>(null);
   const people = Object.values(profiles).filter((p) => p.active && p.role !== 'viewer').sort((a, b) => a.fullName.localeCompare(b.fullName));
@@ -50,6 +52,12 @@ export function TasksPage({ repo, me, profiles, tasks, taskTime, tz }: Props) {
           <button type="button" className="linkbtn tasktitle" onClick={() => setEditing(c.task)}>{c.task.title}</button>
         </div>
         {(isAdmin || c.task.assignees.length > 1) && c.person && <span className="sub">{name(c.person)}</span>}
+        {c.task.items.length > 0 && (
+          <span className="sub progress" data-testid="task-progress">
+            <span className="pbar"><span style={{ width: `${(c.task.items.filter((i) => i.doneAt).length / c.task.items.length) * 100}%` }} /></span>
+            {c.task.items.filter((i) => i.doneAt).length}/{c.task.items.length} contracts
+          </span>
+        )}
         <span className="sub">Est. {dur(c.task.estimateMinutes)}{c.person ? ` · logged ${spent ? dur(spent) : '0m'}` : ''}{c.status === 'done' && c.doneAt ? ` · done ${shortDate(dateOf(c.doneAt, tz))}` : ''}</span>
         {c.status === 'grabs' ? (<>
           {isAdmin && <span className={'pill for-' + c.task.grabsFor}>{c.task.grabsFor === 'admin' ? 'For admins' : 'For RCMs'}</span>}
@@ -76,6 +84,7 @@ export function TasksPage({ repo, me, profiles, tasks, taskTime, tz }: Props) {
               <option value="">Everyone</option>
               {people.map((p) => <option key={p.id} value={p.id}>{p.fullName}</option>)}
             </select>
+            <button className="btn" type="button" onClick={() => setSharing(true)}>Share out contracts</button>
             <button className="btn primary" type="button" onClick={() => setEditing('new')}>New task</button>
           </>)}
         </div>
@@ -112,8 +121,9 @@ export function TasksPage({ repo, me, profiles, tasks, taskTime, tz }: Props) {
           );
         })}
       </div>
+      {sharing && <ContractsModal repo={repo} profiles={profiles} tz={tz} onClose={() => setSharing(false)} />}
       {editing && (
-        <TaskModal repo={repo} me={me} people={people} task={editing === 'new' ? null : editing} profiles={profiles} taskTime={taskTime} tz={tz} onClose={() => setEditing(null)} />
+        <TaskModal repo={repo} me={me} people={people} task={editing === 'new' ? null : tasks.find((t) => t.id === editing.id) || editing} profiles={profiles} taskTime={taskTime} tz={tz} onClose={() => setEditing(null)} />
       )}
     </section>
   );
@@ -152,6 +162,7 @@ function TaskModal({ repo, me, people, task, profiles, taskTime, tz, onClose }: 
       <Modal label="Task" onClose={onClose}>
         <div><div className="eyebrow">{PRIORITY_LABEL[task.priority]} priority</div><h2>{task.title}</h2></div>
         {task.description && <p className="prewrap">{task.description}</p>}
+        <Checklist repo={repo} task={task} canTick tz={tz} />
         <p className="note">Estimated {dur(task.estimateMinutes)} · you logged {dur(actualMinutes(taskTime, task.id, me.id))}. Link this task in your shift reports to log time on it.</p>
         <div className="actions"><span className="spacer" /><button className="btn" type="button" onClick={onClose}>Close</button></div>
       </Modal>
@@ -192,6 +203,7 @@ function TaskModal({ repo, me, people, task, profiles, taskTime, tz, onClose }: 
           <label className="check"><input type="radio" name="tk-grabs" checked={grabsFor === 'admin'} onChange={() => setGrabsFor('admin')} />Admins (only admins see it)</label>
         </div>
       )}
+      {task && task.items.length > 0 && <Checklist repo={repo} task={task} canTick tz={tz} />}
       {task && task.assignees.length > 0 && (
         <table className="mini">
           <thead><tr><th>Person</th><th>Status</th><th className="num">Logged</th></tr></thead>
@@ -208,5 +220,27 @@ function TaskModal({ repo, me, people, task, profiles, taskTime, tz, onClose }: 
         <button className="btn primary" type="button" disabled={busy} onClick={save}>{task ? 'Save task' : 'Create task'}</button>
       </div>
     </Modal>
+  );
+}
+
+/** One line per contract: the name opens the contract on Upwork; tick it once done. */
+function Checklist({ repo, task, canTick, tz }: { repo: Repo; task: Task; canTick: boolean; tz: string }) {
+  const [error, setError] = useState<string | null>(null);
+  if (!task.items.length) return null;
+  const done = task.items.filter((i) => i.doneAt).length;
+  return (
+    <div className="checklist">
+      <span className="eyebrow">Contracts · {done}/{task.items.length} done</span>
+      <ul aria-label="Contracts">
+        {task.items.map((i) => (
+          <li key={i.id} className={i.doneAt ? 'done' : ''}>
+            <input type="checkbox" aria-label={`Done: ${i.label}`} checked={!!i.doneAt} disabled={!canTick}
+              onChange={(e) => repo.toggleTaskItem(i.id, e.target.checked).catch((err) => setError(errorText(err, tz)))} />
+            <a href={i.url} target="_blank" rel="noopener noreferrer">{i.label}</a>
+          </li>
+        ))}
+      </ul>
+      {error && <p className="err" role="alert">{error}</p>}
+    </div>
   );
 }

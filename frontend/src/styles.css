@@ -269,3 +269,10 @@ table.mini{font-size:13px}
 .pill.for-rcm{background:color-mix(in srgb, var(--accent) 14%, transparent); color:var(--accent)}
 .task .pill{margin-left:0; justify-self:start}
 .grabsask{padding:8px 10px; border:1px dashed var(--warn); border-radius:6px}
+.checklist ul{list-style:none; margin:6px 0 0; padding:0; display:grid; gap:4px; max-height:300px; overflow:auto}
+.checklist li{display:flex; gap:8px; align-items:center}
+.checklist li.done a{text-decoration:line-through; color:var(--muted)}
+.task .progress{display:flex; gap:6px; align-items:center}
+.pbar{display:inline-block; width:70px; height:6px; border-radius:3px; background:var(--surface-2); overflow:hidden}
+.pbar span{display:block; height:100%; background:var(--ok)}
+.fields input[type="text"], .fields input:not([type]){width:100%; padding:7px 10px}

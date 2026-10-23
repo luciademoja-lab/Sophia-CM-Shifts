@@ -5,6 +5,7 @@ import type { Coverage, CoverageDays, Slot } from '../lib/coverage';
 import type { Availability } from '../lib/availability';
 import type { LogEntry, Profile, Report, Role, Shift } from '../lib/shifts';
 import type { ReportInput, WeeklyReport } from '../lib/work';
+import type { ContractLine } from '../lib/contracts';
 import type { Task, TaskEvent, TaskInput, TaskStatus, TaskTimeRow } from '../lib/tasks';
 
 export type Snapshot = {
@@ -64,6 +65,9 @@ export interface Repo {
   /** person defaults to the signed-in user */
   moveTask(id: string, person: string | null, status: TaskStatus): Promise<void>;
   claimTask(id: string): Promise<void>;
+  /** admins: share out the morning's contracts evenly, one task per RCM in `people` */
+  createContractTasks(task: TaskInput, minutesEach: number, people: string[], items: ContractLine[]): Promise<string[]>;
+  toggleTaskItem(id: string, done: boolean): Promise<void>;
   approveShift(id: string): Promise<void>;
   rejectShift(id: string): Promise<void>;
   deleteLog(id: string): Promise<void>;

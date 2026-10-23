@@ -23,7 +23,10 @@ export type Task = {
   createdBy: string | null;
   createdAt: number;
   assignees: Assignment[];
+  /** checklist lines (e.g. one Upwork contract each), in order */
+  items: TaskItem[];
 };
+export type TaskItem = { id: string; label: string; url: string; doneAt: number | null; doneBy: string | null };
 export type GrabsFor = 'rcm' | 'admin';
 export type TaskInput = { title: string; description: string; priority: Priority; estimateMinutes: number; grabsFor?: GrabsFor | null };
 export type TaskEvent = {

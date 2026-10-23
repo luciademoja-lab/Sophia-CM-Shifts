@@ -3,18 +3,19 @@ const SECTIONS: Array<{ title: string; items: string[] }> = [
   {
     title: 'Your role',
     items: [
-      'Hire posters on Upwork. No job posting, no contract ending, no milestone payments except the first one when you send the contract.',
+      'No job posting, no contract ending, no milestone payments.',
       'Onboard new posters to the OS dashboard and to Slack.',
       'Manage the Slack channels daily, for all posters.',
       'Report directly to operations (Aram and Lucia).',
       'Escalate technical tickets directly to the founders in #os-tickets.',
-      'All four recruiters handle everything: all questions, referrals and hirings, depending on your working schedule. There is no direct manager per poster.',
+      'All four RCMs handle everything: all questions, referrals, account creations, and account checks, depending on your working schedule. There is no direct manager per poster.',
     ],
   },
   {
     title: 'Hiring',
     items: [
-      'The recruiter who sends the contract becomes the poster’s contact person.',
+      'Every morning Aram shares the new Upwork contracts: your share arrives as a task in “My tasks”, one line per poster.',
+      'For each poster: open the contract from their name, find the email address they sent in the conversation, paste it when you create their OS profile, and invite them to Slack.',
       'Create the OS account immediately after the offer is accepted.',
       'Your first and only message on Upwork: ask for the email address for the Slack invitation. No other communication on Upwork after the offer is accepted.',
     ],

@@ -7,7 +7,7 @@ const lucia = prof('lucia', 'admin'), regina = prof('regina', 'rcm'), max = prof
 
 const H = 3_600_000;
 const task = (id: string, assignees: Array<[string, 'todo' | 'in_progress' | 'done', number?]>, extra: Partial<Task> = {}): Task => ({
-  id, title: id, description: '', priority: 'normal', estimateMinutes: 60, grabsFor: 'rcm', createdBy: 'lucia', createdAt: 0,
+  id, title: id, description: '', priority: 'normal', estimateMinutes: 60, grabsFor: 'rcm', createdBy: 'lucia', createdAt: 0, items: [],
   assignees: assignees.map(([person, status, doneAt]) => ({ person, status, doneAt: doneAt ?? null, updatedAt: 0 })), ...extra,
 });
 

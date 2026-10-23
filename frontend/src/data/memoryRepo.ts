@@ -6,6 +6,7 @@ import { canChange, findOverlap, historyFor, type LogAction, type LogEntry, type
 import { isValidTimeZone, parseDateValue } from '../lib/time';
 import { canSubmitWeekly, reportWeek, validateReport, weeklyMinutes, type WeeklyReport } from '../lib/work';
 import { canSeeTask, taskTimeRows, validateTask, STATUSES, type Task, type TaskEvent } from '../lib/tasks';
+import { splitEvenly } from '../lib/contracts';
 import { normalizeUsername, validatePassword, validateUsername } from '../../../backend/supabase/functions/_shared/username.ts';
 import { RepoError, type NewLogin, type Repo, type Snapshot } from './repo';
 
@@ -55,7 +56,7 @@ export function createMemoryRepo(seed: Seed): Repo {
   for (const t of seed.tasks || []) {
     tasks.push({
       id: newId('t'), title: t.title, description: t.description || '', priority: t.priority, estimateMinutes: t.estimateMinutes,
-      grabsFor: t.grabsFor || 'rcm', createdBy: lucia?.id ?? null, createdAt: now(),
+      grabsFor: t.grabsFor || 'rcm', createdBy: lucia?.id ?? null, createdAt: now(), items: [],
       assignees: t.assignees.map((u) => byUsername(u)).filter((p): p is Profile => !!p).map((p) => ({ person: p.id, status: 'todo', doneAt: null, updatedAt: now() })),
     });
   }
@@ -157,7 +158,7 @@ export function createMemoryRepo(seed: Seed): Repo {
           const viewer = me ? profiles.get(me)! : null;
           const role = viewer?.role;
           const visible = tasks.filter((t) => canSeeTask(t, viewer)).map((t) => ({
-            ...t, assignees: t.assignees.filter((a) => role === 'admin' || a.person === me).map((a) => ({ ...a })),
+            ...t, assignees: t.assignees.filter((a) => role === 'admin' || a.person === me).map((a) => ({ ...a })), items: t.items.map((i) => ({ ...i })),
           }));
           const rows = taskTimeRows([...reports.values()]).filter((x) => role === 'admin' || x.person === me);
           return {
@@ -297,7 +298,7 @@ export function createMemoryRepo(seed: Seed): Repo {
       const list = checkPeople(people);
       const t: Task = {
         id: newId('t'), title: input.title.trim(), description: input.description.trim(), priority: input.priority, estimateMinutes: input.estimateMinutes,
-        grabsFor: input.grabsFor || 'rcm',
+        grabsFor: input.grabsFor || 'rcm', items: [],
         createdBy: p.id, createdAt: now(), assignees: list.map((person) => ({ person, status: 'todo', doneAt: null, updatedAt: now() })),
       };
       tasks.push(t); taskEvent(p.id, t, 'created'); changed();
@@ -330,6 +331,37 @@ export function createMemoryRepo(seed: Seed): Repo {
       a.doneAt = status === 'done' ? (a.status === 'done' ? a.doneAt : now()) : null;
       a.status = status; a.updatedAt = now();
       taskEvent(p.id, t, 'moved', who, status); changed();
+    },
+    async createContractTasks(input, minutesEach, people, items) {
+      const p = admin('Only admins can share out contracts.');
+      if (!people.length) fail('invalid', 'Pick at least one RCM.');
+      if (new Set(people).size !== people.length) fail('invalid', 'The same RCM is listed twice.');
+      for (const id of people) { const t = profiles.get(id); if (!t?.active || t.role !== 'rcm') fail('invalid', 'Contracts can only go to active RCMs.'); }
+      if (!items.length) fail('invalid', 'Paste at least one contract link.');
+      if (items.length > 500) fail('invalid', 'At most 500 contracts at a time.');
+      if (items.some((i) => !/^https?:\/\//i.test(i.url))) fail('invalid', 'Every contract needs a link starting with https://.');
+      if (!(minutesEach >= 1 && minutesEach <= 240)) fail('invalid', 'Minutes per contract must be between 1 and 240.');
+      const ids: string[] = [];
+      splitEvenly(items, people.length).forEach((part, k) => {
+        if (!part.length) return;
+        const err = validateTask({ ...input, estimateMinutes: part.length * minutesEach }); if (err) fail('invalid', err);
+        const t: Task = {
+          id: newId('t'), title: input.title.trim(), description: input.description.trim(), priority: input.priority, estimateMinutes: part.length * minutesEach,
+          grabsFor: 'rcm', createdBy: p.id, createdAt: now(), assignees: [{ person: people[k], status: 'todo', doneAt: null, updatedAt: now() }],
+          items: part.map((i) => ({ id: newId('i'), label: (i.label.trim() || i.url).slice(0, 200), url: i.url, doneAt: null, doneBy: null })),
+        };
+        tasks.push(t); taskEvent(p.id, t, 'created', people[k]); ids.push(t.id);
+      });
+      changed();
+      return ids;
+    },
+    async toggleTaskItem(id, done) {
+      const p = writer();
+      const t = tasks.find((x) => x.items.some((i) => i.id === id));
+      if (!t) return fail('not_found', 'That line no longer exists.');
+      if (p.role !== 'admin' && !t.assignees.some((a) => a.person === p.id)) fail('forbidden', 'Only the people assigned to this task can tick it.');
+      const it = t.items.find((i) => i.id === id)!;
+      it.doneAt = done ? it.doneAt ?? now() : null; it.doneBy = done ? p.id : null; changed();
     },
     async claimTask(id) {
       const p = writer();

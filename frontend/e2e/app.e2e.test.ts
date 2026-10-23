@@ -390,6 +390,47 @@ describe('tasks', () => {
     expect(titles.some((t) => t.includes('Update the pinned links'))).toBe(true);
   });
 
+  it('shares the morning Upwork contracts evenly between the RCMs, leaving the test login out', async () => {
+    await signIn('lucia');
+    await page.getByRole('button', { name: 'Team' }).click();
+    await page.getByRole('button', { name: 'Create login' }).click();
+    await page.getByLabel('Full name').fill('Test Recruiter');
+    await page.getByLabel('Username').fill('test.rcm');
+    await page.getByLabel('Password', { exact: true }).fill('welcome2026x');
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await page.getByRole('button', { name: 'Done' }).click();
+    await page.getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+    await page.getByRole('button', { name: 'Share out contracts' }).click();
+    // what Upwork puts on the clipboard: names with the contract link embedded
+    const links = Array.from({ length: 9 }, (_, i) => `<li><a href="https://www.upwork.com/ab/c/${i + 1}">Poster ${i + 1}</a></li>`).join('');
+    await page.getByLabel('Contract list').evaluate((el, html) => {
+      const dt = new DataTransfer();
+      dt.setData('text/html', `<ul>${html}</ul>`);
+      dt.setData('text/plain', 'Poster names');
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, links);
+    await page.getByTestId('ct-count').filter({ hasText: '9 contracts found' }).waitFor();
+    const group = page.getByRole('group', { name: 'Share between' });
+    expect(await group.getByLabel(/Test Recruiter/).isChecked()).toBe(false);
+    expect(await group.innerText()).toMatch(/Kris Arévalo\s*·\s*3 contracts/);
+    await page.getByRole('button', { name: 'Create 4 tasks' }).click();
+    await page.getByTestId('overlay').waitFor({ state: 'hidden' });
+    await page.getByTestId('task-progress').nth(3).waitFor();
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('kris');
+    await page.getByRole('button', { name: 'My tasks' }).click();
+    const card = page.getByTestId('task-card').filter({ hasText: 'New posters' });
+    expect(await card.getByTestId('task-progress').innerText()).toContain('0/3 contracts');
+    await card.getByRole('button', { name: /New posters/ }).click();
+    const list = page.getByRole('list', { name: 'Contracts' });
+    expect(await list.getByRole('link').allInnerTexts()).toEqual(['Poster 1', 'Poster 2', 'Poster 3']);
+    expect(await list.getByRole('link', { name: 'Poster 1' }).getAttribute('href')).toBe('https://www.upwork.com/ab/c/1');
+    expect(await page.getByTestId('overlay').innerText()).toContain('Copy the email address the poster sent there.');
+    await page.getByLabel('Done: Poster 1').check();
+    await card.getByTestId('task-progress').filter({ hasText: '1/3 contracts' }).waitFor();
+  });
+
   it('shows the RCM role page to RCMs only', async () => {
     await signIn('kris');
     await page.getByRole('button', { name: 'My role' }).click();
