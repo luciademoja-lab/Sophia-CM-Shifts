@@ -276,3 +276,12 @@ table.mini{font-size:13px}
 .pbar{display:inline-block; width:70px; height:6px; border-radius:3px; background:var(--surface-2); overflow:hidden}
 .pbar span{display:block; height:100%; background:var(--ok)}
 .fields input[type="text"], .fields input:not([type]){width:100%; padding:7px 10px}
+.taskkind{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.taskkind .eyebrow{grid-column:1 / -1}
+.taskkind .kind{display:grid; grid-template-columns:auto 1fr; column-gap:8px; row-gap:2px; padding:10px; border:1px solid var(--line); border-radius:8px; cursor:pointer}
+.taskkind .kind input{grid-row:span 2; margin-top:3px}
+.taskkind .kind span{font-size:12px; color:var(--muted)}
+.taskkind .kind.on{border-color:var(--accent); background:color-mix(in srgb, var(--accent) 7%, var(--surface))}
+@media (max-width:600px){ .taskkind{grid-template-columns:1fr} }
+.pastehelp{padding:10px 12px; border-radius:6px; background:color-mix(in srgb, var(--accent) 8%, var(--surface)); font-size:13px}
+#ct-list{min-height:140px; border:2px dashed var(--accent)}

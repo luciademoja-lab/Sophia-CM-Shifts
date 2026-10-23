@@ -401,10 +401,11 @@ describe('tasks', () => {
     await page.getByRole('button', { name: 'Done' }).click();
     await page.getByRole('button', { name: 'Close' }).click();
     await page.getByRole('button', { name: 'Tasks', exact: true }).click();
-    await page.getByRole('button', { name: 'Share out contracts' }).click();
+    await page.getByRole('button', { name: 'New task' }).click();
+    await page.getByRole('radiogroup', { name: 'Kind of task' }).getByLabel(/Hiring & onboarding list/).check();
     // what Upwork puts on the clipboard: names with the contract link embedded
     const links = Array.from({ length: 9 }, (_, i) => `<li><a href="https://www.upwork.com/ab/c/${i + 1}">Poster ${i + 1}</a></li>`).join('');
-    await page.getByLabel('Contract list').evaluate((el, html) => {
+    await page.getByLabel('Upwork contracts (paste here)').evaluate((el, html) => {
       const dt = new DataTransfer();
       dt.setData('text/html', `<ul>${html}</ul>`);
       dt.setData('text/plain', 'Poster names');

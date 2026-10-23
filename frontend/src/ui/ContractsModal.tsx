@@ -6,6 +6,7 @@ import { parseContracts, splitEvenly } from '../lib/contracts';
 import { dateOf, dur, shortDate } from '../lib/time';
 import { errorText } from './errors';
 import { Field, Modal } from './Modal';
+import { TaskKind } from './TaskKind';
 
 export const CONTRACT_STEPS = `For each poster in the list:
 1. Click the name to open the Upwork contract and its conversation.
@@ -17,7 +18,7 @@ Then tick the poster in this task.`;
 const isTestLogin = (p: Profile) => /test/i.test(`${p.username} ${p.fullName}`);
 
 /** Admins: paste the morning's Upwork contracts and share them out evenly, one task per RCM. */
-export function ContractsModal({ repo, profiles, tz, onClose }: { repo: Repo; profiles: Record<string, Profile>; tz: string; onClose: () => void }) {
+export function ContractsModal({ repo, profiles, tz, onClose, onRegular }: { repo: Repo; profiles: Record<string, Profile>; tz: string; onClose: () => void; onRegular?: () => void }) {
   const rcms = Object.values(profiles).filter((p) => p.active && p.role === 'rcm').sort((a, b) => a.fullName.localeCompare(b.fullName));
   const [people, setPeople] = useState<string[]>(rcms.filter((p) => !isTestLogin(p)).map((p) => p.id));
   const [text, setText] = useState('');
@@ -48,12 +49,16 @@ export function ContractsModal({ repo, profiles, tz, onClose }: { repo: Repo; pr
   }
 
   return (
-    <Modal label="Share out contracts" wide onClose={onClose}>
-      <div><div className="eyebrow">Morning contracts</div><h2>Share out new contracts</h2>
-        <p className="note">Paste the list from Upwork (the freelancer names with their contract link). It is split evenly, in order, into one task per RCM.</p></div>
-      <Field label="Contract list" htmlFor="ct-list">
+    <Modal label="Hiring and onboarding list" wide onClose={onClose}>
+      <div><div className="eyebrow">New task</div><h2>Hiring &amp; onboarding list</h2></div>
+      {onRegular && <TaskKind current="contracts" onPick={(k) => { if (k === 'regular') onRegular(); }} />}
+      <div className="pastehelp">
+        <b>1. Paste the new Upwork contracts below.</b> On Upwork, select the freelancer names (each name links to its contract), copy them (Ctrl+C) and paste here (Ctrl+V).
+        Plain lines like “Ana Pop https://www.upwork.com/…” work too.
+      </div>
+      <Field label="Upwork contracts (paste here)" htmlFor="ct-list">
         <textarea id="ct-list" rows={6} value={text} onPaste={onPaste} onChange={(e) => { setText(e.target.value); if (!e.target.value) setHtml(''); }}
-          placeholder={'Paste here. Plain lines also work:\nAna Pop https://www.upwork.com/…'} />
+          placeholder={'Paste the Upwork contracts here (Ctrl+V)'} />
       </Field>
       <div className="row">
         <span className="note" data-testid="ct-count">{contracts.length} contract{contracts.length === 1 ? '' : 's'} found</span>
@@ -61,7 +66,7 @@ export function ContractsModal({ repo, profiles, tz, onClose }: { repo: Repo; pr
       </div>
 
       <div className="checks" role="group" aria-label="Share between">
-        <span className="eyebrow">Share between</span>
+        <span className="eyebrow">2. Share between (split evenly, in order)</span>
         {rcms.map((p) => {
           const k = chosen.findIndex((c) => c.id === p.id);
           return (

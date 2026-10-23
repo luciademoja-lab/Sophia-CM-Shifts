@@ -9,6 +9,7 @@ import { dur, shortDate, dateOf } from '../lib/time';
 import { errorText } from './errors';
 import { Field, Modal } from './Modal';
 import { ContractsModal } from './ContractsModal';
+import { TaskKind } from './TaskKind';
 
 type Props = { repo: Repo; me: Profile; profiles: Record<string, Profile>; tasks: Task[]; taskTime: TaskTimeRow[]; tz: string };
 
@@ -84,7 +85,7 @@ export function TasksPage({ repo, me, profiles, tasks, taskTime, tz }: Props) {
               <option value="">Everyone</option>
               {people.map((p) => <option key={p.id} value={p.id}>{p.fullName}</option>)}
             </select>
-            <button className="btn" type="button" onClick={() => setSharing(true)}>Share out contracts</button>
+            <button className="btn" type="button" onClick={() => setSharing(true)}>Hiring &amp; onboarding list</button>
             <button className="btn primary" type="button" onClick={() => setEditing('new')}>New task</button>
           </>)}
         </div>
@@ -121,16 +122,18 @@ export function TasksPage({ repo, me, profiles, tasks, taskTime, tz }: Props) {
           );
         })}
       </div>
-      {sharing && <ContractsModal repo={repo} profiles={profiles} tz={tz} onClose={() => setSharing(false)} />}
+      {sharing && <ContractsModal repo={repo} profiles={profiles} tz={tz} onClose={() => setSharing(false)} onRegular={() => { setSharing(false); setEditing('new'); }} />}
       {editing && (
-        <TaskModal repo={repo} me={me} people={people} task={editing === 'new' ? null : tasks.find((t) => t.id === editing.id) || editing} profiles={profiles} taskTime={taskTime} tz={tz} onClose={() => setEditing(null)} />
+        <TaskModal repo={repo} me={me} people={people} task={editing === 'new' ? null : tasks.find((t) => t.id === editing.id) || editing}
+          onContracts={() => { setEditing(null); setSharing(true); }} profiles={profiles} taskTime={taskTime} tz={tz} onClose={() => setEditing(null)} />
       )}
     </section>
   );
 }
 
-function TaskModal({ repo, me, people, task, profiles, taskTime, tz, onClose }: {
+function TaskModal({ repo, me, people, task, profiles, taskTime, tz, onClose, onContracts }: {
   repo: Repo; me: Profile; people: Profile[]; task: Task | null; profiles: Record<string, Profile>; taskTime: TaskTimeRow[]; tz: string; onClose: () => void;
+  onContracts?: () => void;
 }) {
   const isAdmin = me.role === 'admin';
   const [title, setTitle] = useState(task?.title || '');
@@ -171,6 +174,7 @@ function TaskModal({ repo, me, people, task, profiles, taskTime, tz, onClose }: 
   return (
     <Modal label={task ? 'Edit task' : 'New task'} onClose={onClose}>
       <div><div className="eyebrow">{task ? 'Edit task' : 'New task'}</div><h2>{task ? task.title : 'Create a task'}</h2></div>
+      {!task && onContracts && <TaskKind current="regular" onPick={(k) => { if (k === 'contracts') onContracts(); }} />}
       <Field label="Title" htmlFor="tk-title"><input id="tk-title" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} /></Field>
       <Field label="Description" htmlFor="tk-desc"><textarea id="tk-desc" rows={3} maxLength={4000} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
       <div className="fields">
@@ -244,3 +248,4 @@ function Checklist({ repo, task, canTick, tz }: { repo: Repo; task: Task; canTic
     </div>
   );
 }
+
