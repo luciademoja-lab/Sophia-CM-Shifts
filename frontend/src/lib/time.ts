@@ -159,3 +159,27 @@ export function allTimeZones(): string[] {
   const intl = Intl as unknown as { supportedValuesOf?: (k: string) => string[] };
   try { return intl.supportedValuesOf ? intl.supportedValuesOf('timeZone') : ['UTC']; } catch { return ['UTC']; }
 }
+
+/** Length of a calendar day in a zone: 23 or 25 hours on the days the clocks change. */
+export function dayHours(date: PlainDate, tz: string): number {
+  return Math.round((dayStartMs(addDays(date, 1), tz) - dayStartMs(date, tz)) / HOUR);
+}
+
+/**
+ * Days of the week starting `mon` on which times set in `otherTz` move against `viewerTz`
+ * because only one of them changes its clocks. `minutes` > 0: they show later from that day.
+ */
+export function clockChanges(mon: PlainDate, viewerTz: string, otherTz: string): Array<{ day: number; minutes: number }> {
+  const diff = (i: number) => {
+    const t = zonedToUtc(addDays(mon, i), 12 * 60, viewerTz);
+    return tzOffsetMinutes(t, viewerTz) - tzOffsetMinutes(t, otherTz);
+  };
+  const out: Array<{ day: number; minutes: number }> = [];
+  let prev = diff(0);
+  for (let i = 1; i < 7; i++) {
+    const d = diff(i);
+    if (d !== prev) out.push({ day: i, minutes: d - prev });
+    prev = d;
+  }
+  return out;
+}

@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { withRefresh } from './data/refresh';
 import type { Repo, Snapshot } from './data/repo';
 import { DAY_MS, addDays, browserTimeZone, dayStartMs, weekStart } from './lib/time';
 import { Board } from './ui/Board';
@@ -20,10 +21,12 @@ export function App({ repo }: { repo: Repo }) {
   return <SignedIn key={uid} repo={repo} />;
 }
 
-function SignedIn({ repo }: { repo: Repo }) {
+function SignedIn({ repo: base }: { repo: Repo }) {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  // Every change made here reloads the board at once; realtime brings other people's changes.
+  const repo = useMemo(() => withRefresh(base, () => setTick((t) => t + 1)), [base]);
   const [weekOffset, setWeekOffset] = useState(0);
   const [skippedAvailability, setSkippedAvailability] = useState(() => { try { return sessionStorage.getItem('rcm-skip-availability') === '1'; } catch { return false; } });
 
@@ -35,7 +38,12 @@ function SignedIn({ repo }: { repo: Repo }) {
   useEffect(() => {
     let pending: ReturnType<typeof setTimeout> | undefined;
     const off = repo.subscribe(() => { clearTimeout(pending); pending = setTimeout(() => setTick((t) => t + 1), 150); });
-    return () => { clearTimeout(pending); off(); };
+    // safety net if the realtime connection drops: reload when the tab comes back and every minute
+    const again = () => { if (document.visibilityState === 'visible') setTick((t) => t + 1); };
+    document.addEventListener('visibilitychange', again);
+    window.addEventListener('focus', again);
+    const poll = setInterval(again, 60_000);
+    return () => { clearTimeout(pending); off(); document.removeEventListener('visibilitychange', again); window.removeEventListener('focus', again); clearInterval(poll); };
   }, [repo]);
 
   useEffect(() => {

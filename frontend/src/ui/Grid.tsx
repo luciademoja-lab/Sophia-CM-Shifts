@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { uncoveredRuns, type Coverage, type Interval } from '../lib/coverage';
 import { activeShifts, canChange, personColor, type Profile, type Shift } from '../lib/shifts';
-import { DAYS, addDays, minuteOfDay, wallSpan, dateOf, dayStartMs, hm, minLabel, rangeLabel, sameDate, tzLabel, zonedToUtc, type PlainDate } from '../lib/time';
+import { DAYS, addDays, dayHours, minuteOfDay, wallSpan, dateOf, dayStartMs, hm, minLabel, rangeLabel, sameDate, tzLabel, zonedToUtc, type PlainDate } from '../lib/time';
 
 const ROW = 11, SLOTS = 96;
 
@@ -55,6 +55,7 @@ export function Grid(p: Props) {
           return (
             <div key={d} className={'dayhead' + (sameDate(date, today) ? ' is-today' : '')}>
               <span className="dname">{d}</span><span className="dnum">{date.d}</span>
+              {dayHours(date, p.tz) !== 24 && <span className="dst" title={`Clocks change in ${p.tz} today: this day has ${dayHours(date, p.tz)} hours`}>{dayHours(date, p.tz) > 24 ? 'clocks −1h' : 'clocks +1h'}</span>}
             </div>
           );
         })}

@@ -34,6 +34,8 @@ const toWeekly = (r: WeeklyRow): WeeklyReport => ({
   submittedAt: Date.parse(r.submitted_at), decidedBy: r.decided_by, decidedAt: r.decided_at ? Date.parse(r.decided_at) : null,
 });
 const iso = (ms: number) => new Date(ms).toISOString();
+export const REALTIME_TABLES = ['shifts', 'shift_log', 'coverage', 'profiles', 'shift_reports', 'availability', 'availability_days',
+  'notification_seen', 'tasks', 'task_assignees', 'task_log', 'report_tasks', 'weekly_reports'];
 
 function check<T>(res: { data: T; error: { message: string } | null }): T {
   if (res.error) throw parseDbError(res.error.message);
@@ -132,12 +134,11 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
       };
     },
     subscribe(onChange) {
-      const ch = sb.channel('rcm-board');
-      for (const table of ['shifts', 'shift_log', 'coverage', 'profiles', 'shift_reports', 'availability', 'availability_days', 'notification_seen', 'tasks', 'task_assignees', 'task_log', 'report_tasks', 'weekly_reports']) {
-        ch.on('postgres_changes', { event: '*', schema: 'public', table }, () => onChange());
-      }
-      ch.subscribe();
-      return () => { void sb.removeChannel(ch); };
+      // One channel per table: if a table is missing from the realtime publication,
+      // only that table stops updating instead of the whole board.
+      const channels = REALTIME_TABLES.map((table) =>
+        sb.channel(`rcm-${table}`).on('postgres_changes', { event: '*', schema: 'public', table }, () => onChange()).subscribe());
+      return () => { for (const ch of channels) void sb.removeChannel(ch); };
     },
 
     async setMyTimezone(tz) { check(await sb.rpc('set_my_timezone', { p_tz: tz })); },

@@ -114,3 +114,19 @@ describe('wallSpan (where a block sits in a day column)', () => {
     expect(wallSpan(utc('2026-10-19T08:00:00Z'), utc('2026-10-19T10:30:00Z'), dayStartMs(mon, 'Europe/Rome'), dayStartMs(addDays(mon, 1), 'Europe/Rome'), 'Europe/Rome')).toEqual({ from: 600, to: 750 });
   });
 });
+
+import { clockChanges, dayHours } from './time';
+describe('clock changes in the week (DST)', () => {
+  const mon = { y: 2026, m: 10, d: 19 };
+  it('knows which days are 23 or 25 hours long', () => {
+    expect(dayHours({ y: 2026, m: 10, d: 25 }, 'Europe/Rome')).toBe(25);
+    expect(dayHours({ y: 2026, m: 10, d: 25 }, 'America/Bogota')).toBe(24);
+  });
+  it('finds the day from which another zone moves against yours', () => {
+    // Rome 07:00 is Bogota 00:00 until Saturday and 01:00 from Sunday: later for a Bogota viewer
+    expect(clockChanges(mon, 'America/Bogota', 'Europe/Rome')).toEqual([{ day: 6, minutes: 60 }]);
+    expect(clockChanges(mon, 'Europe/Rome', 'America/Bogota')).toEqual([{ day: 6, minutes: -60 }]);
+    expect(clockChanges(mon, 'Europe/Rome', 'Europe/Budapest')).toEqual([]);
+    expect(clockChanges({ y: 2026, m: 10, d: 26 }, 'Europe/Rome', 'America/New_York')).toEqual([{ day: 6, minutes: 60 }]);
+  });
+});

@@ -20,7 +20,7 @@ import { WeeklyReportModal } from './WeeklyReport';
 import { TasksPage } from './TasksPage';
 import { Dashboard } from './Dashboard';
 import { RolePage } from './RolePage';
-import { dateValue } from '../lib/time';
+import { clockChanges, dateValue, dayLabel } from '../lib/time';
 
 type Props = { repo: Repo; snap: Snapshot; tz: string; mon: PlainDate; onWeek: (delta: number | null) => void; loadError: string | null };
 type Dialog = { kind: 'shift'; ctx: EditorCtx } | { kind: 'report'; shift: Shift } | { kind: 'coverage' } | { kind: 'team' } | { kind: 'tz' } | { kind: 'availability'; owner: Profile } | { kind: 'notifications' } | { kind: 'weekly' } | null;
@@ -191,6 +191,14 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
         {ghosts.length > 0 && <span><span className="sw ghost-sw" />Suggested shift (click to assign)</span>}
         {canBook && <span>Drag on the grid (or tap) to book. Click a shift to change it. Each name shows that RCM's own time zone.</span>}
       </div>
+
+      {coverage && coverage.tz !== tz && clockChanges(mon, tz, coverage.tz).map((c) => (
+        <p key={c.day} className="dstnote" data-testid="dst-note">
+          <b>{dayLabel(dayStartMs(addDays(mon, c.day), tz) + 12 * 3_600_000, tz)}:</b> the clocks change in only one of {coverage.tz} and {tz}.
+          The required hours are set in {coverage.tz} time, so from this day they show {Math.abs(c.minutes) / 60} hour {c.minutes > 0 ? 'later' : 'earlier'} in your time zone.
+          They have not moved in {coverage.tz}. Availability of RCMs in other time zones moves the same way.
+        </p>
+      ))}
 
       <Grid
         mon={mon} tz={tz} now={now} shifts={shifts} profiles={profiles} me={me} coverage={coverage} canBook={canBook}

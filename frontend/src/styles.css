@@ -258,3 +258,5 @@ table.mini{font-size:13px}
 .taskspage .panel-head .row select{width:auto}
 .taskspage .panel-head{align-items:center}
 .linked select{width:auto; min-width:110px}
+.dayhead .dst{display:block; font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--warn)}
+.dstnote{margin:0 0 8px; padding:8px 12px; border-left:3px solid var(--warn); background:var(--warn-soft); border-radius:4px; font-size:13px}

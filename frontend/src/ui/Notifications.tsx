@@ -23,10 +23,11 @@ export function taskEventText(e: TaskEvent, name: (id: string | null) => string)
   return `${name(e.actor)} ${e.action} “${e.title}”`;
 }
 
-/** Count shown on the header button: requests to decide plus RCM changes not seen yet. */
+/** Count shown on the header button: what RCMs did since the admin last opened the panel. */
 export function unreadCount(log: LogEntry[], requests: Shift[], profiles: Record<string, Profile>, me: Profile | null, seenAt: number, weekly: WeeklyReport[] = [], taskLog: TaskEvent[] = []): number {
-  return requests.length + weekly.filter((w) => w.status === 'submitted').length
-    + notificationsFor(log, profiles, me, seenAt).filter((n) => n.unread && n.entry.action !== 'requested').length
+  void requests; // waiting requests stay listed in the panel, but only new ones light the dot
+  return weekly.filter((w) => w.status === 'submitted' && w.submittedAt > seenAt).length
+    + notificationsFor(log, profiles, me, seenAt).filter((n) => n.unread).length
     + taskNotifications(taskLog, profiles, seenAt).filter((n) => n.unread).length;
 }
 

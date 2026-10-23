@@ -397,6 +397,7 @@ describe('availability and assigning shifts', () => {
     await signIn('rana');
     await page.getByRole('button', { name: 'Next week' }).click();
     const col = page.locator('.col').nth(3);
+    await page.locator('.boardwrap').evaluate((el) => el.scrollIntoView({ block: 'start' }));
     const box = (await col.boundingBox())!;
     const y = box.y + 11 * 4 * 9 + 2; // 09:00 Istanbul, before Rana's 15:00 start
     await page.mouse.move(box.x + 20, y);
@@ -452,6 +453,7 @@ describe('availability and assigning shifts', () => {
     expect(await page.locator('#view-pick option').allInnerTexts()).toEqual(["Admin view: everyone's availability", 'Kris Arévalo', 'Olizhia Mairuhu', 'Rana Barakli', 'Regina Nemeth']);
     await page.locator('.boardwrap').evaluate((el) => { el.scrollIntoView({ block: 'start' }); el.scrollTop = 11 * 4 * 14; }); // show the afternoon and evening
     const col = page.locator('.col').nth(4);
+    await page.locator('.boardwrap').evaluate((el) => el.scrollIntoView({ block: 'start' }));
     const box = (await col.boundingBox())!;
     await page.mouse.click(box.x + 60, box.y + 11 * 4 * 20 + 2); // Friday 20:00 Rome
     expect(await page.getByLabel('RCM').locator('option').allInnerTexts()).toContain('🔴 Regina Nemeth');
@@ -530,11 +532,54 @@ describe('history, plan and past days', () => {
   });
 });
 
+describe('live updates and time zones', () => {
+  it('clears the notification dot once the panel is opened, even with requests still waiting', async () => {
+    await signIn('rana');
+    await page.getByRole('button', { name: 'Next week' }).click();
+    const col = page.locator('.col').nth(3);
+    await page.locator('.boardwrap').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    const box = (await col.boundingBox())!;
+    await page.mouse.click(box.x + 20, box.y + 11 * 4 * 9 + 2); // 09:00 Istanbul: outside Rana's hours
+    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByTestId('overlay').waitFor({ state: 'hidden' });
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('lucia');
+    await page.getByTestId('notif-badge').waitFor();
+    await page.getByRole('button', { name: /^Notifications/ }).click();
+    await page.getByTestId('requests').waitFor();
+    await page.getByRole('button', { name: 'Close' }).click();
+    await page.waitForFunction(() => !document.querySelector('[data-testid="notif-badge"]'));
+  });
+
+  it('redraws the calendar when you change your time zone', async () => {
+    await signIn('lucia');
+    await page.getByText('Times shown in your time zone: Europe/Rome').waitFor();
+    const before = await page.locator('.shift').first().getAttribute('style');
+    await page.getByRole('button', { name: 'Change' }).click();
+    await page.getByLabel('Your time zone').selectOption('America/Bogota');
+    await page.getByRole('button', { name: 'Save time zone' }).click();
+    await page.getByText('Times shown in your time zone: America/Bogota').waitFor();
+    await page.waitForFunction((b) => document.querySelector('.shift')?.getAttribute('style') !== b, before);
+  });
+
+  it('explains the time change when the required hours are set in another zone', async () => {
+    await page.clock.install({ time: Date.parse('2026-10-23T12:00:00Z') });
+    await page.reload();
+    await signIn('kris'); // Bogota, required hours in Rome time
+    expect(await page.getByTestId('dst-note').innerText()).toContain('from this day they show 1 hour later in your time zone');
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('lucia'); // Rome: Sunday 25 Oct has 25 hours
+    await page.locator('.dayhead .dst', { hasText: 'clocks −1h' }).waitFor();
+    expect(await page.getByTestId('dst-note').count()).toBe(0);
+  });
+});
+
 describe('booking (unchanged from the original board)', () => {
   it('books availability by dragging on the grid', async () => {
     await signIn('rana');
     const before = await page.locator('.shift').count();
     const col = page.locator('.col').nth(3);
+    await page.locator('.boardwrap').evaluate((el) => el.scrollIntoView({ block: 'start' }));
     const box = (await col.boundingBox())!;
     const y = box.y + 11 * 4 * 16 + 2; // 16:00 Istanbul, inside Rana's availability (15–21)
     await page.mouse.move(box.x + 20, y);
@@ -552,6 +597,7 @@ describe('booking (unchanged from the original board)', () => {
     await signIn('rana');
     await page.locator('.shift', { hasText: 'Regina Nemeth' }).first().waitFor();
     const col = page.locator('.col').nth(0);
+    await page.locator('.boardwrap').evaluate((el) => el.scrollIntoView({ block: 'start' }));
     const box = (await col.boundingBox())!;
     await page.mouse.move(box.x + 20, box.y + 11 * 4 * 8 + 22); // 08:30 Istanbul, inside Regina's shift
     await page.mouse.down();
