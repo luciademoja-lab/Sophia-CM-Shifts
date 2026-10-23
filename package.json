@@ -1,0 +1,38 @@
+{
+  "name": "rcmshifts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "RCM Shifts: availability and coverage board for Vik Studios recruiters and community managers",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run --project unit",
+    "test:watch": "vitest --project unit",
+    "test:db": "vitest run --project db",
+    "test:e2e": "vite build --mode e2e && vitest run --project e2e",
+    "typecheck": "tsc --noEmit",
+    "db:start": "supabase --workdir backend start",
+    "db:stop": "supabase --workdir backend stop",
+    "db:reset": "supabase --workdir backend db reset",
+    "functions:serve": "supabase --workdir backend functions serve",
+    "test:all": "npm test && npm run test:db && npm run test:e2e"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "playwright": "^1.55.0",
+    "supabase": "^2.40.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.4"
+  }
+}

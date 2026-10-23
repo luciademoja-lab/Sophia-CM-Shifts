@@ -1,0 +1,16 @@
+# Supabase CLI config. Run CLI commands with --workdir backend (see package.json scripts).
+# Only the settings that differ from the CLI defaults are listed here.
+project_id = "RCMshifts"
+
+[auth]
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:4173"]
+# RCMs never sign up themselves: logins are created by admins from the app.
+enable_signup = false
+
+[auth.email]
+enable_signup = false
+enable_confirmations = false
+
+[functions.admin-users]
+verify_jwt = true

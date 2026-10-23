@@ -1,0 +1,234 @@
+// End-to-end tests: the built app (dist/) in demo mode, in a headless browser.
+// Run with `npm run test:e2e` (builds first). Needs `npx playwright install chromium` once.
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { chromium, type Browser, type Page } from 'playwright';
+import { createServer, type Server } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { extname, join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const DIST = join(process.env.PROJECT_ROOT || join(dirname(fileURLToPath(import.meta.url)), '../..'), 'dist');
+const TYPES: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
+const PASSWORD = 'demo2026pass';
+
+let server: Server, base = '', browser: Browser, page: Page;
+
+beforeAll(async () => {
+  server = createServer(async (req, res) => {
+    const path = (req.url || '/').split('?')[0];
+    const file = join(DIST, path === '/' ? 'index.html' : path);
+    try {
+      const body = await readFile(file);
+      res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' }).end(body);
+    } catch {
+      res.writeHead(200, { 'Content-Type': 'text/html' }).end(await readFile(join(DIST, 'index.html')));
+    }
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const addr = server.address();
+  base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}/`;
+  browser = await chromium.launch();
+});
+
+afterAll(async () => {
+  await browser?.close();
+  await new Promise((r) => server?.close(r));
+});
+
+beforeEach(async () => {
+  const ctx = await browser.newContext({ timezoneId: 'Europe/Rome', viewport: { width: 1280, height: 900 } });
+  page = await ctx.newPage();
+  page.on('pageerror', (e) => { throw e; });
+  await page.goto(base);
+});
+
+async function signIn(username: string, password = PASSWORD) {
+  await page.getByLabel('Username').fill(username);
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+}
+
+const text = (sel: string) => page.locator(sel).allInnerTexts();
+
+describe('logins made by us', () => {
+  it('signs in with a username and password', async () => {
+    await signIn('lucia');
+    await page.getByText('Signed in as Lucia De Mojà').waitFor();
+    expect(await page.getByRole('heading', { name: 'RCM Shifts' }).isVisible()).toBe(true);
+  });
+
+  it('rejects a wrong password', async () => {
+    await signIn('lucia', 'wrong-password-1');
+    await page.getByText('Wrong username or password.').waitFor();
+  });
+
+  it('lets an admin create a username and password that the RCM can then use', async () => {
+    await signIn('lucia');
+    await page.getByRole('button', { name: 'Team' }).click();
+    await page.getByRole('button', { name: 'Create login' }).click();
+    await page.getByLabel('Full name').fill('Test Recruiter');
+    await page.getByLabel('Username').fill('test.rcm');
+    await page.getByLabel('Password', { exact: true }).fill('welcome2026x');
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await page.getByText('Login created').waitFor();
+    expect(await page.getByTestId('credentials').innerText()).toContain('test.rcm');
+    expect(await page.getByTestId('credentials').innerText()).toContain('welcome2026x');
+    await page.getByRole('button', { name: 'Done' }).click();
+    await page.getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('test.rcm', 'welcome2026x');
+    await page.getByText('Choose your time zone').waitFor();
+  });
+
+  it('does not show team management to RCMs', async () => {
+    await signIn('regina');
+    await page.getByText('Signed in as Regina Nemeth').waitFor();
+    expect(await page.getByRole('button', { name: 'Team' }).count()).toBe(0);
+  });
+});
+
+describe('read-only access (Max, Adrien)', () => {
+  it('shows the board but no way to change it', async () => {
+    await signIn('max');
+    await page.getByText('You have read-only access').first().waitFor();
+    expect(await page.getByRole('button', { name: 'Team' }).count()).toBe(0);
+    expect(await page.getByRole('button', { name: 'Edit' }).count()).toBe(0);
+    expect(await page.locator('.col.can-book').count()).toBe(0);
+    expect(await page.locator('.shift .x').count()).toBe(0);
+    await page.locator('.shift', { hasText: 'Kris Arévalo' }).first().click();
+    await page.getByRole('button', { name: 'Close' }).waitFor();
+    expect(await page.getByRole('button', { name: /Take this shift|Delete shift|Save/ }).count()).toBe(0);
+  });
+});
+
+describe('time zone chosen by the RCM', () => {
+  it('asks at first login and shows the board in that zone', async () => {
+    await signIn('olizhia');
+    await page.getByText('Choose your time zone').waitFor();
+    await page.getByLabel('Your time zone').selectOption('Asia/Jakarta');
+    await page.getByRole('button', { name: 'Save time zone' }).click();
+    await page.getByText('Times shown in your time zone: Asia/Jakarta').waitFor();
+  });
+
+  it('shows each RCM\'s time zone next to their name in the calendar', async () => {
+    await signIn('lucia');
+    await page.locator('.shift').first().waitFor();
+    const blocks = await text('.shift');
+    expect(blocks.some((b) => b.includes('Regina Nemeth') && b.includes('Budapest'))).toBe(true);
+    expect(blocks.some((b) => b.includes('Kris Arévalo') && b.includes('Bogota'))).toBe(true);
+  });
+
+  it('shows the zone in the hours table too', async () => {
+    await signIn('lucia');
+    await page.locator('#hours table').waitFor();
+    expect((await page.locator('#hours').innerText())).toContain('Istanbul');
+  });
+});
+
+describe('required hours with gaps', () => {
+  it('adds a second slot to a day with the + button and saves it', async () => {
+    await signIn('lucia');
+    await page.getByRole('button', { name: 'Edit' }).click();
+    const monday = page.getByTestId('cov-day-1');
+    await monday.getByRole('button', { name: 'Remove slot' }).nth(1).click();
+    await monday.getByRole('button', { name: 'Remove slot' }).first().click();
+    await monday.getByRole('button', { name: 'Add slot' }).click();
+    await monday.getByLabel('Monday slot 1 from').selectOption('540');
+    await monday.getByLabel('Monday slot 1 until').selectOption('720');
+    await monday.getByRole('button', { name: 'Add slot' }).click();
+    await monday.getByLabel('Monday slot 2 from').selectOption('900');
+    await monday.getByLabel('Monday slot 2 until').selectOption('1080');
+    await page.getByRole('button', { name: 'Save target' }).click();
+    await page.getByTestId('overlay').waitFor({ state: 'hidden' });
+    await page.locator('#coverage', { hasText: '09:00–12:00, 15:00–18:00' }).waitFor();
+  });
+
+  it('refuses overlapping slots', async () => {
+    await signIn('lucia');
+    await page.getByRole('button', { name: 'Edit' }).click();
+    const monday = page.getByTestId('cov-day-1');
+    await monday.getByLabel('Monday slot 2 from').selectOption('720');
+    await page.getByRole('button', { name: 'Save target' }).click();
+    await page.getByText('Monday: slots').waitFor();
+  });
+});
+
+describe('hours worked and shift reports', () => {
+  // Regina's demo shift on Monday 07:00–13:00 (Rome) has already started this week.
+  async function reportAsRegina() {
+    await signIn('regina');
+    await page.locator('.shift', { hasText: 'Regina Nemeth (you)' }).first().click();
+    await page.getByRole('button', { name: 'Add report' }).click();
+    await page.getByLabel('Hours worked').selectOption('4');
+    await page.getByLabel('Minutes').selectOption('30');
+    await page.getByLabel('What did you do?').fill('Answered Zone A, onboarded 3 posters');
+    await page.getByRole('button', { name: 'Save report' }).click();
+    await page.locator('#history', { hasText: 'Answered Zone A, onboarded 3 posters' }).waitFor();
+  }
+
+  it('lets an RCM log hours worked and a report, shown in the history and the hours table', async () => {
+    await reportAsRegina();
+    expect(await page.locator('#history').innerText()).toContain('Regina Nemeth reported on a shift');
+    expect(await page.locator('#history').innerText()).toContain('Worked 4h 30m (booked 6h)');
+    const row = page.locator('#hours tr', { hasText: 'Regina Nemeth' });
+    expect(await row.innerText()).toContain('4h 30m');
+  });
+
+  it('lets the RCM edit their report from the history', async () => {
+    await reportAsRegina();
+    await page.locator('#history').getByRole('button', { name: 'Edit report' }).first().click();
+    await page.getByLabel('Hours worked').selectOption('5');
+    await page.getByRole('button', { name: 'Save report' }).click();
+    await page.locator('#history', { hasText: 'Worked 5h 30m' }).waitFor();
+  });
+
+  it('lets admins edit, and keeps other RCMs and viewers read-only', async () => {
+    await reportAsRegina();
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('kris');
+    await page.locator('#history', { hasText: 'Answered Zone A' }).waitFor();
+    expect(await page.locator('#history').getByRole('button', { name: /report/ }).count()).toBe(0);
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('max');
+    await page.locator('#history', { hasText: 'Answered Zone A' }).waitFor();
+    expect(await page.locator('#history').getByRole('button', { name: /report/ }).count()).toBe(0);
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('lucia');
+    await page.locator('#history').getByRole('button', { name: 'Edit report' }).first().click();
+    await page.getByLabel('What did you do?').fill('Corrected by Lucia');
+    await page.getByRole('button', { name: 'Save report' }).click();
+    await page.locator('#history', { hasText: 'Corrected by Lucia' }).waitFor();
+    expect(await page.locator('#history').innerText()).toContain("Lucia De Mojà edited the report on Regina Nemeth's shift");
+  });
+});
+
+describe('booking (unchanged from the original board)', () => {
+  it('books availability by dragging on the grid', async () => {
+    await signIn('rana');
+    const before = await page.locator('.shift').count();
+    const col = page.locator('.col').nth(3);
+    const box = (await col.boundingBox())!;
+    const y = box.y + 11 * 4 * 9 + 2; // 09:00 (the board opens scrolled to 07:00)
+    await page.mouse.move(box.x + 20, y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 20, y + 11 * 8, { steps: 4 }); // two hours
+    await page.mouse.up();
+    await page.getByRole('button', { name: 'Book shift' }).click();
+    await page.getByTestId('overlay').waitFor({ state: 'hidden' });
+    await page.locator('.shift', { hasText: '09:00–11:15' }).waitFor();
+    expect(await page.locator('.shift').count()).toBe(before + 1);
+    expect(await page.locator('.shift', { hasText: '09:00–11:15' }).innerText()).toContain('Rana Barakli');
+  });
+
+  it('refuses a second RCM in the same slot', async () => {
+    await signIn('rana');
+    await page.locator('.shift', { hasText: 'Regina Nemeth' }).first().waitFor();
+    const col = page.locator('.col').nth(0);
+    const box = (await col.boundingBox())!;
+    await page.mouse.move(box.x + 20, box.y + 11 * 4 * 8 + 22); // 08:30 Istanbul, inside Regina's shift
+    await page.mouse.down();
+    await page.mouse.up();
+    // the click lands on Regina's 07:00–13:00 Monday shift, which opens it read-only for Rana
+    await page.getByText('Only the person who booked this shift or an admin can change it.').waitFor();
+  });
+});

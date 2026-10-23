@@ -1,0 +1,141 @@
+import { useEffect, useState } from 'react';
+import type { Repo, Snapshot } from '../data/repo';
+import { hasTarget, uncoveredRuns } from '../lib/coverage';
+import { activeShifts, canWrite, findOverlap, onDutyAt, openInRange, toCsv, type Shift } from '../lib/shifts';
+import { addDays, dayStartMs, dur, isoWeek, rangeLabel, shortDate, type PlainDate } from '../lib/time';
+import { CoverageEditor } from './CoverageEditor';
+import { errorText } from './errors';
+import { Grid, personName } from './Grid';
+import { Modal } from './Modal';
+import { CoveragePanel, HistoryPanel, HoursPanel } from './Panels';
+import { ShiftEditor, type EditorCtx } from './ShiftEditor';
+import { TeamModal } from './TeamModal';
+import { TimezonePicker } from './TimezonePicker';
+import { ReportEditor } from './ReportEditor';
+
+type Props = { repo: Repo; snap: Snapshot; tz: string; mon: PlainDate; onWeek: (delta: number | null) => void; loadError: string | null };
+type Dialog = { kind: 'shift'; ctx: EditorCtx } | { kind: 'report'; shift: Shift } | { kind: 'coverage' } | { kind: 'team' } | { kind: 'tz' } | null;
+type Toast = { msg: string; undo?: () => Promise<unknown> } | null;
+
+export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
+  const { me, profiles, shifts, coverage, log, reports } = snap;
+  const isAdmin = me?.role === 'admin';
+  const canBook = canWrite(me);
+  const isViewer = me?.role === 'viewer';
+  const [dialog, setDialog] = useState<Dialog>(null);
+  const [toast, setToast] = useState<Toast>(null);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60_000); return () => clearInterval(t); }, []);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 7000); return () => clearTimeout(t); }, [toast]);
+
+  const w0 = dayStartMs(mon, tz), w1 = dayStartMs(addDays(mon, 7), tz);
+  const sun = addDays(mon, 6);
+  const act = activeShifts(shifts);
+  const booked = act.filter((s) => s.status === 'booked');
+  const uncovered = Array.from({ length: 7 }, (_, i) => uncoveredRuns(addDays(mon, i), tz, coverage, booked))
+    .flat().reduce((m, r) => m + (r.to - r.from) * 15, 0);
+  const onDuty = onDutyAt(shifts, now);
+  const open = openInRange(shifts, w0, w1);
+  const name = (id: string) => personName(profiles, id, me);
+
+  async function quickDelete(s: Shift) {
+    try {
+      await repo.deleteShift(s.id);
+      const label = `${name(s.owner)}'s shift, ${rangeLabel(s.start, s.end, tz)}`;
+      setToast({
+        msg: `Deleted ${label}.`,
+        undo: s.coversId || s.status !== 'booked' ? undefined : async () => {
+          const o = findOverlap(shifts.filter((x) => x.id !== s.id), s.start, s.end, []);
+          if (o) { setToast({ msg: `Can't restore: ${name(o.owner)} has booked that time.` }); return; }
+          await repo.bookShift(s.start, s.end, s.owner === me?.id ? null : s.owner, true);
+        },
+      });
+    } catch (e) { setToast({ msg: errorText(e, tz) }); }
+  }
+
+  function exportCsv() {
+    const csv = toCsv(shifts, profiles, w0, w1, tz, reports);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `rcm-shifts-week-${isoWeek(mon)}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  return (
+    <div className="wrap">
+      <header className="top">
+        <div>
+          <div className="eyebrow">Vik Studios · Recruiter &amp; Community Managers</div>
+          <h1>RCM Shifts</h1>
+          <div className="muted">
+            <span>Times shown in your time zone: {tz}</span>{' '}
+            <button type="button" className="linkbtn" onClick={() => setDialog({ kind: 'tz' })}>Change</button>
+            {me && <> · <span>Signed in as {me.fullName}, {isAdmin ? 'admin' : isViewer ? 'read-only' : 'RCM'}</span></>}
+          </div>
+        </div>
+        <div className="userbar">
+          <div className="weeknav">
+            <button className="btn" type="button" aria-label="Previous week" onClick={() => onWeek(-1)}>←</button>
+            <div className="weeklabel">Week {isoWeek(mon)} · {shortDate(mon)} – {shortDate(sun)}</div>
+            <button className="btn" type="button" aria-label="Next week" onClick={() => onWeek(1)}>→</button>
+            <button className="btn" type="button" onClick={() => onWeek(null)}>This week</button>
+          </div>
+          {isAdmin && <button className="btn" type="button" onClick={() => setDialog({ kind: 'team' })}>Team</button>}
+          <button className="btn" type="button" onClick={() => repo.signOut()}>Sign out</button>
+        </div>
+      </header>
+
+      {isViewer && <div className="banner">You have read-only access: you can see the board, the history and the reports, but not change them.</div>}
+      {repo.mode === 'demo' && <div className="banner">Demo mode: data lives in this tab only and resets when you reload.</div>}
+      {loadError && <div className="banner err">{loadError}</div>}
+
+      <section className="strip">
+        <div className={'stat ' + (onDuty ? 'good' : 'bad')}><span className="eyebrow">On duty now</span><span className="v">{onDuty ? name(onDuty.owner) : 'Nobody'}</span></div>
+        <div className={'stat ' + (!hasTarget(coverage) ? '' : uncovered ? 'bad' : 'good')}><span className="eyebrow">Not covered this week</span><span className="v">{!hasTarget(coverage) ? 'No target set' : uncovered ? dur(uncovered) : 'Fully covered'}</span></div>
+        <div className={'stat ' + (open.length ? 'attn' : 'good')}><span className="eyebrow">Needs cover</span><span className="v">{open.length ? `${open.length} shift${open.length > 1 ? 's' : ''}` : 'None'}</span></div>
+      </section>
+
+      <div className="legend">
+        <span><span className="sw mine" />Booked availability</span>
+        <span><span className="sw open" />Needs cover</span>
+        <span><span className="sw uncovered" />Required but not covered</span>
+        {canBook && <span>Drag on the grid (or tap) to book. Click a shift to change it. Each name shows that RCM's own time zone.</span>}
+      </div>
+
+      <Grid
+        mon={mon} tz={tz} now={now} shifts={shifts} profiles={profiles} me={me} coverage={coverage} canBook={canBook}
+        onOpenShift={(s) => setDialog({ kind: 'shift', ctx: { shift: s } })}
+        onNewShift={(r) => setDialog({ kind: 'shift', ctx: r })}
+        onQuickDelete={quickDelete}
+      />
+
+      <section className="panels">
+        <HoursPanel shifts={shifts} reports={reports} profiles={profiles} me={me} from={w0} to={w1} onExport={exportCsv} />
+        <CoveragePanel coverage={coverage} isAdmin={isAdmin} onEdit={() => setDialog({ kind: 'coverage' })} />
+        <HistoryPanel log={log} profiles={profiles} tz={tz} shifts={shifts} reports={reports} me={me} now={now} onReport={(s) => setDialog({ kind: 'report', shift: s })} />
+      </section>
+
+      {dialog?.kind === 'shift' && me && (
+        <ShiftEditor ctx={dialog.ctx} repo={repo} tz={tz} me={me} profiles={profiles} shifts={shifts} reports={reports} now={now} onClose={() => setDialog(null)} onReport={(s) => setDialog({ kind: 'report', shift: s })} />
+      )}
+      {dialog?.kind === 'report' && me && (
+        <ReportEditor repo={repo} shift={dialog.shift} report={reports[dialog.shift.id]} tz={tz} me={me} profiles={profiles} onClose={() => setDialog(null)} />
+      )}
+      {dialog?.kind === 'coverage' && <CoverageEditor repo={repo} coverage={coverage} fallbackTz={tz} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'team' && me && <TeamModal repo={repo} me={me} profiles={profiles} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'tz' && (
+        <Modal label="Time zone" onClose={() => setDialog(null)}>
+          <TimezonePicker current={me?.timezone || tz} onCancel={() => setDialog(null)} onSave={async (z) => { await repo.setMyTimezone(z); setDialog(null); }} />
+        </Modal>
+      )}
+
+      {toast && (
+        <div className="toast" role="status">
+          <span>{toast.msg}</span>
+          {toast.undo && <button className="btn" type="button" onClick={() => { const u = toast.undo!; setToast(null); u().catch(() => setToast({ msg: 'Could not undo. Book the shift again.' })); }}>Undo</button>}
+        </div>
+      )}
+    </div>
+  );
+}
