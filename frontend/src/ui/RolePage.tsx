@@ -47,7 +47,7 @@ const SECTIONS: Array<{ title: string; items: string[] }> = [
 
 export function RolePage() {
   return (
-    <section className="panel rolepage">
+    <section className="panel rolepage" data-tour="rolepage">
       <div className="eyebrow">Vik Studios 2.0</div>
       <h2>Recruiter &amp; Community Manager</h2>
       <p className="note">Posters post two slideshows a day on TikTok, submit their milestone every Sunday and get paid on Monday. Our job is to hire them, onboard them and keep the community running, almost 24/7 across our time zones.</p>

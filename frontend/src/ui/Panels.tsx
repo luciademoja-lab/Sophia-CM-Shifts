@@ -26,7 +26,7 @@ export function HoursPanel({ shifts, reports, availability, profiles, me, from, 
   const mine = own ? shifts.filter((x) => x.owner === me!.id && x.start >= from && x.start < to && x.start <= now && (x.status === 'booked' || x.status === 'open')).sort((a, b) => a.start - b.start) : [];
   const [armed, setArmed] = useState<string | null>(null);
   return (
-    <div className="panel wide">
+    <div className="panel wide" data-tour="hours">
       <div className="panel-head"><h2>{own ? 'My availability and hours this week' : 'Availability and hours this week'}</h2>{!own && <button className="btn" type="button" onClick={onExport}>Export CSV</button>}</div>
       <div id="hours">
         {!rows.length ? <p className="empty">{own ? 'No availability or shifts this week yet.' : 'Nobody has booked availability this week yet.'}</p> : (<>
@@ -87,7 +87,7 @@ export function HoursPanel({ shifts, reports, availability, profiles, me, from, 
 
 export function CoveragePanel({ coverage, isAdmin, onEdit }: { coverage: Coverage | null; isAdmin: boolean; onEdit: () => void }) {
   return (
-    <div className="panel">
+    <div className="panel" data-tour="coverage">
       <div className="panel-head"><h2>Required coverage</h2>{isAdmin && <button className="btn" type="button" onClick={onEdit}>Edit</button>}</div>
       <div id="coverage">
         {!hasTarget(coverage) ? (
@@ -125,7 +125,7 @@ export function HistoryPanel({ log, profiles, tz, shifts, reports, me, now, onRe
   const latest = latestEntryPerShift(log);
   const byId = new Map(shifts.map((s) => [s.id, s]));
   return (
-    <div className="panel">
+    <div className="panel" data-tour="history">
       <div className="panel-head">
         <h2>History</h2>
         {seesAll && (
@@ -186,7 +186,7 @@ export function PlanPanel({ plan, profiles, tz, showGhosts, onToggleGhosts, onAs
     try { await fn(); } catch (e) { setError(errorText(e, tz)); } finally { setBusy(false); }
   };
   return (
-    <div className="panel wide plan" id="plan">
+    <div className="panel wide plan" id="plan" data-tour="plan">
       <div className="panel-head">
         <h2>Suggested plan</h2>
         <div className="row">

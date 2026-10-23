@@ -20,6 +20,8 @@ import { WeeklyReportModal } from './WeeklyReport';
 import { TasksPage } from './TasksPage';
 import { Dashboard } from './Dashboard';
 import { RolePage } from './RolePage';
+import { Tour, tourSeen } from './Tour';
+import { tourFor } from '../lib/tour';
 import { clockChanges, dateValue, dayLabel } from '../lib/time';
 
 type Props = { repo: Repo; snap: Snapshot; tz: string; mon: PlainDate; onWeek: (delta: number | null) => void; loadError: string | null };
@@ -37,6 +39,8 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
   const pages: Array<[Page, string]> = [['schedule', 'Schedule'], ...(isViewer ? [] : [['tasks', isRcm ? 'My tasks' : 'Tasks'] as [Page, string]]),
     ...(isAdmin ? [['dashboard', 'Dashboard'] as [Page, string]] : []), ...(isRcm ? [['role', 'My role'] as [Page, string]] : [])];
   const [page, setPage] = useState<Page>('schedule');
+  // the tutorial starts by itself the first time someone signs in, and from the Tutorial button
+  const [touring, setTouring] = useState(() => !!me && !tourSeen(me.username));
   const [toast, setToast] = useState<Toast>(null);
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60_000); return () => clearInterval(t); }, []);
@@ -116,34 +120,35 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
           <div className="eyebrow">Vik Studios · Recruiter &amp; Community Managers</div>
           <h1>RCM Shifts</h1>
           <div className="muted">
-            <span>Times shown in your time zone: {tz}</span>{' '}
+            <span data-tour="tz">Times shown in your time zone: {tz}</span>{' '}
             <button type="button" className="linkbtn" onClick={() => setDialog({ kind: 'tz' })}>Change</button>
             {me && <> · <span>Signed in as {me.fullName}, {isAdmin ? 'admin' : isViewer ? 'read-only' : 'RCM'}</span></>}
           </div>
         </div>
         <div className="userbar">
-          <div className="weeknav">
+          <div className="weeknav" data-tour="week">
             <button className="btn" type="button" aria-label="Previous week" onClick={() => onWeek(-1)}>←</button>
             <div className="weeklabel">Week {isoWeek(mon)} · {shortDate(mon)} – {shortDate(sun)}</div>
             <button className="btn" type="button" aria-label="Next week" onClick={() => onWeek(1)}>→</button>
             <button className="btn" type="button" onClick={() => onWeek(null)}>This week</button>
           </div>
           {editableAvailability && (
-            <button className="btn" type="button" onClick={() => setDialog({ kind: 'availability', owner: editableAvailability })}>
+            <button className="btn" type="button" data-tour="availability" onClick={() => setDialog({ kind: 'availability', owner: editableAvailability })}>
               {editableAvailability.id === me?.id ? 'My availability' : `Edit ${editableAvailability.fullName.split(' ')[0]}'s availability`}
             </button>
           )}
           {isRcm && (
-            <button className="btn" type="button" onClick={() => setDialog({ kind: 'weekly' })}>
+            <button className="btn" type="button" data-tour="weekly" onClick={() => setDialog({ kind: 'weekly' })}>
               Weekly report{myWeekly ? <span className={'pill ' + myWeekly.status}>{{ submitted: 'sent', approved: 'approved', rejected: 'sent back' }[myWeekly.status]}</span> : null}
             </button>
           )}
           {isAdmin && (
-            <button className="btn" type="button" aria-label={`Notifications${unread ? `, ${unread} new` : ''}`} onClick={() => setDialog({ kind: 'notifications' })}>
+            <button className="btn" type="button" data-tour="notifications" aria-label={`Notifications${unread ? `, ${unread} new` : ''}`} onClick={() => setDialog({ kind: 'notifications' })}>
               Notifications{unread > 0 && <span className="badge" data-testid="notif-badge">{unread}</span>}
             </button>
           )}
-          {isAdmin && <button className="btn" type="button" onClick={() => setDialog({ kind: 'team' })}>Team</button>}
+          {isAdmin && <button className="btn" type="button" data-tour="team" onClick={() => setDialog({ kind: 'team' })}>Team</button>}
+          <button className="btn" type="button" data-tour="tutorial" onClick={() => setTouring(true)}>Tutorial</button>
           <button className="btn" type="button" onClick={() => repo.signOut()}>Sign out</button>
         </div>
       </header>
@@ -153,7 +158,7 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
       {loadError && <div className="banner err">{loadError}</div>}
 
       {pages.length > 1 && (
-        <nav className="pagetabs" aria-label="Pages">
+        <nav className="pagetabs" aria-label="Pages" data-tour="tabs">
           {pages.map(([k, label]) => <button key={k} type="button" aria-current={page === k ? 'page' : undefined} onClick={() => setPage(k)}>{label}</button>)}
         </nav>
       )}
@@ -170,7 +175,7 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
       </section>
 
       {!fixedToSelf && (
-        <div className="viewpick">
+        <div className="viewpick" data-tour="view">
           <label className="eyebrow" htmlFor="view-pick">View</label>
           <select id="view-pick" value={view} onChange={(e) => setView(e.target.value)}>
             <option value="team">Admin view: everyone's availability</option>
@@ -182,7 +187,7 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
         </div>
       )}
 
-      <div className="legend">
+      <div className="legend" data-tour="legend">
         <span><span className="sw avail-sw" />{shown === 'team' ? 'Availability (thin coloured lanes, one per RCM)' : fixedToSelf ? 'Your availability' : `${profiles[shown]?.fullName ?? ''}'s availability`}</span>
         <span><span className="sw mine" />Shift</span>
         <span><span className="sw open" />Needs cover</span>
@@ -246,6 +251,8 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
           <TimezonePicker current={me?.timezone || tz} onCancel={() => setDialog(null)} onSave={async (z) => { await repo.setMyTimezone(z); setDialog(null); }} />
         </Modal>
       )}
+
+      {touring && me && <Tour steps={tourFor(me.role)} username={me.username} setPage={setPage} onClose={() => setTouring(false)} />}
 
       {toast && (
         <div className="toast" role="status">

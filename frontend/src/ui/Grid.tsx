@@ -47,7 +47,7 @@ export function Grid(p: Props) {
   const booked = act.filter((s) => s.status === 'booked');
 
   return (
-    <div className="boardwrap" ref={wrap}>
+    <div className="boardwrap" ref={wrap} data-tour="grid">
       <div className="board">
         <div className="corner" />
         {DAYS.map((d, i) => {

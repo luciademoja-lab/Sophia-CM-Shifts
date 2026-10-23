@@ -37,6 +37,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
   const ctx = await browser.newContext({ timezoneId: 'Europe/Rome', viewport: { width: 1280, height: 900 } });
+  // the tutorial starts by itself at first sign-in; the tutorial tests turn this off
+  await ctx.addInitScript(() => { try { localStorage.setItem('rcm-tour-skip-all', '1'); } catch { /* ignore */ } });
   page = await ctx.newPage();
   page.on('pageerror', (e) => { throw e; });
   await page.goto(base);
@@ -642,6 +644,48 @@ describe('live updates and time zones', () => {
     await signIn('lucia'); // Rome: Sunday 25 Oct has 25 hours
     await page.locator('.dayhead .dst', { hasText: 'clocks −1h' }).waitFor();
     expect(await page.getByTestId('dst-note').count()).toBe(0);
+  });
+});
+
+describe('tutorial', () => {
+  const firstTime = () => page.evaluate(() => localStorage.removeItem('rcm-tour-skip-all'));
+
+  it('starts by itself at the first sign-in and walks an RCM through a typical week, page by page', async () => {
+    await firstTime();
+    await signIn('regina');
+    const tour = page.getByTestId('tour');
+    await tour.getByRole('heading', { name: 'Welcome to RCM Shifts' }).waitFor();
+    expect(await tour.innerText()).toContain('1 / 11');
+    await tour.getByRole('button', { name: 'Next' }).click(); // time zone
+    await tour.getByRole('button', { name: 'Next' }).click(); // availability
+    await tour.getByRole('heading', { name: '1. Say when you can work' }).waitFor();
+    await page.locator('.tour-hole').waitFor(); // the spotlight is on the button
+    for (let k = 0; k < 6; k++) await tour.getByRole('button', { name: 'Next' }).click();
+    await tour.getByRole('heading', { name: '5. Work through your tasks' }).waitFor();
+    await page.locator('.kanban').waitFor(); // it switched to My tasks
+    await tour.getByRole('button', { name: 'Back' }).click();
+    await page.locator('.boardwrap').waitFor(); // and back to the schedule
+    await tour.getByRole('button', { name: 'Skip tutorial' }).click();
+    expect(await page.getByTestId('tour').count()).toBe(0);
+    // not again at the next sign-in, but always one click away
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('regina');
+    await page.locator('.shift').first().waitFor();
+    expect(await page.getByTestId('tour').count()).toBe(0);
+    await page.getByRole('button', { name: 'Tutorial' }).click();
+    await page.getByTestId('tour').getByRole('heading', { name: 'Welcome to RCM Shifts' }).waitFor();
+  });
+
+  it('has its own steps for admins, ending on the Tutorial button', async () => {
+    await firstTime();
+    await signIn('lucia');
+    const tour = page.getByTestId('tour');
+    await tour.getByText('the admin side').waitFor();
+    const n = Number((await tour.innerText()).match(/1 \/ (\d+)/)![1]);
+    for (let k = 1; k < n; k++) await tour.getByRole('button', { name: 'Next' }).click();
+    await tour.getByRole('heading', { name: 'That’s the tour' }).waitFor();
+    await tour.getByRole('button', { name: 'Done' }).click();
+    expect(await page.getByTestId('tour').count()).toBe(0);
   });
 });
 

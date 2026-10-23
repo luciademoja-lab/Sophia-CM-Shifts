@@ -86,12 +86,12 @@ export function TasksPage({ repo, me, profiles, tasks, taskTime, tz }: Props) {
               {people.map((p) => <option key={p.id} value={p.id}>{p.fullName}</option>)}
             </select>
             <button className="btn" type="button" onClick={() => setSharing(true)}>Hiring &amp; onboarding list</button>
-            <button className="btn primary" type="button" onClick={() => setEditing('new')}>New task</button>
+            <button className="btn primary" type="button" data-tour="newtask" onClick={() => setEditing('new')}>New task</button>
           </>)}
         </div>
       </div>
       {error && <p className="err" role="alert">{error}</p>}
-      <div className="kanban">
+      <div className="kanban" data-tour="kanban">
         <div className="kcol grabs" data-status="grabs">
           <h3>Up for grabs <span className="muted">{column(cards, 'grabs').length}</span></h3>
           <p className="note">{me.role === 'rcm' ? 'Nobody has these yet: take one and it moves to your To do.' : 'Nobody assigned yet. RCMs take the RCM ones, admins the admin ones.'}</p>

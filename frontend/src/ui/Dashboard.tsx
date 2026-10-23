@@ -34,7 +34,7 @@ export function Dashboard({ profiles, tasks, taskTime, weeklyReports, mon, w0, w
   const weekKey = `${mon.y}-${String(mon.m).padStart(2, '0')}-${String(mon.d).padStart(2, '0')}`;
 
   return (
-    <section className="dashboard viz-root">
+    <section className="dashboard viz-root" data-tour="dashboard">
       <div className="nums">
         <div className="panel stat-tile"><span className="eyebrow">Completed by the whole team</span><b data-testid="done-total">{done.total}</b><span className="sub">{week}</span></div>
         <div className="panel stat-tile"><span className="eyebrow">Completed by RCMs</span><b data-testid="done-rcms">{byRcms}</b><span className="sub">{week}</span></div>
