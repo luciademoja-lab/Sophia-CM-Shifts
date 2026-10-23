@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import type { Repo, Snapshot } from '../data/repo';
 import { hasTarget, uncoveredRuns } from '../lib/coverage';
-import { activeShifts, canWrite, findOverlap, onDutyAt, openInRange, toCsv, type Shift } from '../lib/shifts';
+import { activeShifts, canWrite, findOverlap, onDutyAt, openInRange, personColor, toCsv, type Profile, type Shift } from '../lib/shifts';
+import { availabilityIntervals, emptyAvailability } from '../lib/availability';
 import { addDays, dayStartMs, dur, isoWeek, rangeLabel, shortDate, type PlainDate } from '../lib/time';
 import { CoverageEditor } from './CoverageEditor';
 import { errorText } from './errors';
-import { Grid, personName } from './Grid';
+import { Grid, personName, type Overlay } from './Grid';
+import { AvailabilityForm } from './AvailabilityForm';
 import { Modal } from './Modal';
 import { CoveragePanel, HistoryPanel, HoursPanel } from './Panels';
 import { ShiftEditor, type EditorCtx } from './ShiftEditor';
@@ -14,11 +16,11 @@ import { TimezonePicker } from './TimezonePicker';
 import { ReportEditor } from './ReportEditor';
 
 type Props = { repo: Repo; snap: Snapshot; tz: string; mon: PlainDate; onWeek: (delta: number | null) => void; loadError: string | null };
-type Dialog = { kind: 'shift'; ctx: EditorCtx } | { kind: 'report'; shift: Shift } | { kind: 'coverage' } | { kind: 'team' } | { kind: 'tz' } | null;
+type Dialog = { kind: 'shift'; ctx: EditorCtx } | { kind: 'report'; shift: Shift } | { kind: 'coverage' } | { kind: 'team' } | { kind: 'tz' } | { kind: 'availability'; owner: Profile } | null;
 type Toast = { msg: string; undo?: () => Promise<unknown> } | null;
 
 export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
-  const { me, profiles, shifts, coverage, log, reports } = snap;
+  const { me, profiles, shifts, coverage, log, reports, availability } = snap;
   const isAdmin = me?.role === 'admin';
   const canBook = canWrite(me);
   const isViewer = me?.role === 'viewer';
@@ -37,6 +39,20 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
   const onDuty = onDutyAt(shifts, now);
   const open = openInRange(shifts, w0, w1);
   const name = (id: string) => personName(profiles, id, me);
+
+  // Who can hold shifts, and whose availability the board shows.
+  const rcms = Object.values(profiles).filter((p) => p.active && p.role === 'rcm').sort((a, b) => a.fullName.localeCompare(b.fullName));
+  const fixedToSelf = me?.role === 'rcm';
+  const [view, setView] = useState<string>(() => (fixedToSelf && me ? me.id : 'team'));
+  const shown = fixedToSelf ? me!.id : view;
+  const intervalsOf = (id: string) => availabilityIntervals(availability[id] || emptyAvailability(profiles[id]?.timezone ?? null), w0, w1);
+  const overlay: Overlay = shown === 'team'
+    ? { mode: 'lanes', people: rcms.map((p) => ({ id: p.id, name: p.fullName, color: personColor(p.username), intervals: intervalsOf(p.id) })) }
+    : profiles[shown]
+      ? { mode: 'single', people: [{ id: shown, name: profiles[shown].fullName, color: personColor(profiles[shown].username), intervals: intervalsOf(shown) }] }
+      : { mode: 'single', people: [] };
+  const weekDates = Array.from({ length: 7 }, (_, i) => addDays(mon, i));
+  const editableAvailability = me && shown !== 'team' && profiles[shown] && (shown === me.id ? me.role === 'rcm' || me.role === 'admin' : isAdmin) ? profiles[shown] : null;
 
   async function quickDelete(s: Shift) {
     try {
@@ -81,6 +97,11 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
             <button className="btn" type="button" aria-label="Next week" onClick={() => onWeek(1)}>→</button>
             <button className="btn" type="button" onClick={() => onWeek(null)}>This week</button>
           </div>
+          {editableAvailability && (
+            <button className="btn" type="button" onClick={() => setDialog({ kind: 'availability', owner: editableAvailability })}>
+              {editableAvailability.id === me?.id ? 'My availability' : `Edit ${editableAvailability.fullName.split(' ')[0]}'s availability`}
+            </button>
+          )}
           {isAdmin && <button className="btn" type="button" onClick={() => setDialog({ kind: 'team' })}>Team</button>}
           <button className="btn" type="button" onClick={() => repo.signOut()}>Sign out</button>
         </div>
@@ -96,8 +117,22 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
         <div className={'stat ' + (open.length ? 'attn' : 'good')}><span className="eyebrow">Needs cover</span><span className="v">{open.length ? `${open.length} shift${open.length > 1 ? 's' : ''}` : 'None'}</span></div>
       </section>
 
+      {!fixedToSelf && (
+        <div className="viewpick">
+          <label className="eyebrow" htmlFor="view-pick">View</label>
+          <select id="view-pick" value={view} onChange={(e) => setView(e.target.value)}>
+            <option value="team">Admin view: everyone's availability</option>
+            {rcms.map((p) => <option key={p.id} value={p.id}>{p.fullName}</option>)}
+          </select>
+          {shown === 'team' && (
+            <span className="people">{rcms.map((p) => <span key={p.id} className="person"><span className="dot" style={{ background: personColor(p.username) }} />{p.fullName}</span>)}</span>
+          )}
+        </div>
+      )}
+
       <div className="legend">
-        <span><span className="sw mine" />Booked availability</span>
+        <span><span className="sw avail-sw" />{shown === 'team' ? 'Availability (thin coloured lanes, one per RCM)' : fixedToSelf ? 'Your availability' : `${profiles[shown]?.fullName ?? ''}'s availability`}</span>
+        <span><span className="sw mine" />Shift</span>
         <span><span className="sw open" />Needs cover</span>
         <span><span className="sw uncovered" />Required but not covered</span>
         {canBook && <span>Drag on the grid (or tap) to book. Click a shift to change it. Each name shows that RCM's own time zone.</span>}
@@ -108,19 +143,28 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
         onOpenShift={(s) => setDialog({ kind: 'shift', ctx: { shift: s } })}
         onNewShift={(r) => setDialog({ kind: 'shift', ctx: r })}
         onQuickDelete={quickDelete}
+        overlay={overlay}
       />
 
       <section className="panels">
-        <HoursPanel shifts={shifts} reports={reports} profiles={profiles} me={me} from={w0} to={w1} onExport={exportCsv} />
+        <HoursPanel shifts={shifts} reports={reports} availability={availability} profiles={profiles} me={me} from={w0} to={w1} onExport={exportCsv} />
         <CoveragePanel coverage={coverage} isAdmin={isAdmin} onEdit={() => setDialog({ kind: 'coverage' })} />
         <HistoryPanel log={log} profiles={profiles} tz={tz} shifts={shifts} reports={reports} me={me} now={now} onReport={(s) => setDialog({ kind: 'report', shift: s })} />
       </section>
 
       {dialog?.kind === 'shift' && me && (
-        <ShiftEditor ctx={dialog.ctx} repo={repo} tz={tz} me={me} profiles={profiles} shifts={shifts} reports={reports} now={now} onClose={() => setDialog(null)} onReport={(s) => setDialog({ kind: 'report', shift: s })} />
+        <ShiftEditor ctx={dialog.ctx} repo={repo} tz={tz} me={me} profiles={profiles} shifts={shifts} reports={reports} availability={availability} now={now} onClose={() => setDialog(null)} onReport={(s) => setDialog({ kind: 'report', shift: s })} />
       )}
       {dialog?.kind === 'report' && me && (
         <ReportEditor repo={repo} shift={dialog.shift} report={reports[dialog.shift.id]} tz={tz} me={me} profiles={profiles} onClose={() => setDialog(null)} />
+      )}
+      {dialog?.kind === 'availability' && me && (
+        <Modal label="Availability" wide onClose={() => setDialog(null)}>
+          <AvailabilityForm repo={repo} me={me} owner={dialog.owner} weekDates={weekDates}
+            availability={availability[dialog.owner.id] || emptyAvailability(dialog.owner.timezone)}
+            title={dialog.owner.id === me.id ? 'My availability' : `${dialog.owner.fullName}'s availability`}
+            onDone={() => setDialog(null)} onCancel={() => setDialog(null)} />
+        </Modal>
       )}
       {dialog?.kind === 'coverage' && <CoverageEditor repo={repo} coverage={coverage} fallbackTz={tz} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'team' && me && <TeamModal repo={repo} me={me} profiles={profiles} onClose={() => setDialog(null)} />}

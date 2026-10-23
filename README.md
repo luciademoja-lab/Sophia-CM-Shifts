@@ -12,6 +12,11 @@ Added after Aram's second round of feedback:
 4. **Hours worked and shift reports.** Once a shift has started, its RCM can add a report (from the shift or from the History panel): the hours actually worked, which can be more or less than the booked slot, and what they did. The shift owner and admins can edit it; it appears in the History, in a *Worked* column of the hours table and in the CSV export.
 5. **Read-only access for Max and Adrien.** A third role, *viewer*: sees the board, history and reports, chooses a time zone, and cannot change anything (enforced by the database functions, not only hidden in the UI). Create their logins from *Team > Create login* with role *Read-only*.
 
+Added on 23 October (evening):
+
+6. **Availability first, then shifts.** After choosing a time zone, each RCM is asked for their availability: a usual week, plus one-off changes for specific days (e.g. a day off), in their own time zone. They can change it any time from *My availability*. RCMs can book or take shifts only inside their availability; admins can assign anywhere, with a warning when it is outside.
+7. **Views by role.** RCMs see their own availability behind the team's weekly shifts. Admins and read-only viewers choose between *Admin view* (a thin coloured lane per RCM showing who is available when) and a single RCM's view. The hours table shows *Offered* (availability given), *Shifts* and *Worked*.
+
 Everything else works as in the artifact: drag to book, one RCM per slot, ask for cover / take over / give back, uncovered hours in red, history, CSV export.
 
 ## Structure

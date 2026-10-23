@@ -1,18 +1,22 @@
 import { coverageText, hasTarget, type Coverage, type Weekday } from '../lib/coverage';
 import { canReport, historyText, latestEntryPerShift, personColor, weekHours, type LogEntry, type Profile, type Report, type Shift } from '../lib/shifts';
 import { DAYS_LONG, dayLabel, dur, hm, tzLabel } from '../lib/time';
+import { availableMinutes, type Availability } from '../lib/availability';
 import { personName } from './Grid';
 import { reportSummary } from './ReportEditor';
 
-export function HoursPanel({ shifts, reports, profiles, me, from, to, onExport }: { shifts: Shift[]; reports: Record<string, Report>; profiles: Record<string, Profile>; me: Profile | null; from: number; to: number; onExport: () => void }) {
-  const rows = weekHours(shifts, from, to, reports);
+export function HoursPanel({ shifts, reports, availability, profiles, me, from, to, onExport }: { shifts: Shift[]; reports: Record<string, Report>; availability: Record<string, Availability>; profiles: Record<string, Profile>; me: Profile | null; from: number; to: number; onExport: () => void }) {
+  const hours = weekHours(shifts, from, to, reports);
+  const offered = Object.fromEntries(Object.entries(availability).map(([id, a]) => [id, availableMinutes(a, from, to)]));
+  const rows = [...hours, ...Object.keys(offered).filter((id) => offered[id] > 0 && profiles[id]?.active && !hours.some((h) => h.owner === id))
+    .map((owner) => ({ owner, booked: 0, covering: 0, open: 0, worked: 0, reported: 0 }))];
   return (
     <div className="panel wide">
       <div className="panel-head"><h2>Availability and hours this week</h2><button className="btn" type="button" onClick={onExport}>Export CSV</button></div>
       <div id="hours">
         {!rows.length ? <p className="empty">Nobody has booked availability this week yet.</p> : (<>
           <table>
-            <thead><tr><th>Person</th><th className="num">Available</th><th className="num">Covering</th><th className="num">Needs cover</th><th className="num">Worked</th></tr></thead>
+            <thead><tr><th>Person</th><th className="num">Offered</th><th className="num">Shifts</th><th className="num">Covering</th><th className="num">Needs cover</th><th className="num">Worked</th></tr></thead>
             <tbody>
               {rows.map((h) => {
                 const p = profiles[h.owner];
@@ -22,7 +26,8 @@ export function HoursPanel({ shifts, reports, profiles, me, from, to, onExport }
                       <div className="person"><span className="dot" style={{ background: personColor(p?.username || h.owner) }} /><span>{personName(profiles, h.owner, me)}</span></div>
                       <span className="sub">{p?.timezone ? tzLabel(p.timezone, from) : 'time zone not set'}</span>
                     </td>
-                    <td className="num">{dur(h.booked / 60000)}</td>
+                    <td className="num">{offered[h.owner] ? dur(offered[h.owner]) : '–'}</td>
+                    <td className="num">{h.booked ? dur(h.booked / 60000) : '–'}</td>
                     <td className="num">{h.covering ? dur(h.covering / 60000) : '–'}</td>
                     <td className="num">{h.open ? dur(h.open / 60000) : '–'}</td>
                     <td className="num">{h.reported ? dur(h.worked / 60000) : '–'}{h.reported ? <span className="sub">{h.reported} report{h.reported > 1 ? 's' : ''}</span> : null}</td>
@@ -31,7 +36,7 @@ export function HoursPanel({ shifts, reports, profiles, me, from, to, onExport }
               })}
             </tbody>
           </table>
-          <p className="note">Available is booked availability. Worked is the time RCMs logged in their shift reports.</p>
+          <p className="note">Offered is the availability each RCM gave for this week. Shifts are the hours booked or assigned. Worked is what RCMs logged in their shift reports.</p>
         </>)}
       </div>
     </div>

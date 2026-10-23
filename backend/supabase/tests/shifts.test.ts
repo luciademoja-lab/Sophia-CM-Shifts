@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { TestDb, failure } from './db';
+import { TestDb, failure, alwaysAvailable } from './db';
 
 const T = (h: number) => `'2026-10-26T00:00:00Z'::timestamptz + interval '${h} hours'`;
 
@@ -14,6 +14,7 @@ describe('shifts', () => {
     kris = db.createUser('kris', 'Kris Arévalo');
     gone = db.createUser('gone', 'Former RCM');
     db.exec({ id: lucia }, `select admin_update_profile('${gone}', 'Former RCM', 'rcm', false)`);
+    alwaysAvailable(db, regina, kris);
   });
   afterAll(() => db.drop());
   beforeEach(() => db.exec('super', 'delete from shift_log; delete from shifts;'));

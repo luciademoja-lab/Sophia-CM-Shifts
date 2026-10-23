@@ -6,6 +6,7 @@ import { errorText } from './errors';
 import { personName } from './Grid';
 import { Field, Modal } from './Modal';
 import { reportSummary } from './ReportEditor';
+import { emptyAvailability, isAvailable, type Availability } from '../lib/availability';
 
 export type EditorCtx = { shift: Shift } | { newStart: number; newMinutes: number };
 
@@ -17,12 +18,13 @@ type Props = {
   profiles: Record<string, Profile>;
   shifts: Shift[];
   reports: Record<string, Report>;
+  availability: Record<string, Availability>;
   now: number;
   onClose: () => void;
   onReport: (s: Shift) => void;
 };
 
-export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, now, onClose, onReport }: Props) {
+export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, availability, now, onClose, onReport }: Props) {
   const s = 'shift' in ctx ? ctx.shift : null;
   const isNew = !s, isOpen = !!s && s.status === 'open';
   const isAdmin = me.role === 'admin';
@@ -49,6 +51,14 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, now,
     return { start: st, end: st + length * 60000 };
   };
   const r = read();
+  const availableFor = (id: string, range: { start: number; end: number } | null) =>
+    !!range && isAvailable(availability[id] || emptyAvailability(profiles[id]?.timezone ?? null), range.start, range.end);
+  const target = owner;
+  const range = isOpen ? s : r;
+  const outside = !!range && !availableFor(target, range);
+  const outsideMsg = target === me.id
+    ? 'This is outside your availability. Add these hours in "My availability" first.'
+    : `Outside ${profiles[target]?.fullName ?? 'this person'}'s availability. You can still assign it.`;
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true); setError(null);
@@ -70,7 +80,7 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, now,
     <Modal label={eyebrow} onClose={onClose}>
       <div>
         <div className="eyebrow">{eyebrow}</div>
-        <h2>{isNew ? 'Book availability' : personName(profiles, s!.owner, me)}</h2>
+        <h2>{isNew ? 'Book a shift' : personName(profiles, s!.owner, me)}</h2>
         {covered && <p className="note">Covering for {name(covered.owner)}.</p>}
         {isViewer ? <p className="note">You have read-only access.</p> : !editable && !isOpen && <p className="err">Only the person who booked this shift or an admin can change it.</p>}
       </div>
@@ -78,7 +88,7 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, now,
       {(isAdmin && (editable || isOpen)) ? (
         <Field label={isOpen ? 'Who takes this shift' : 'RCM'} htmlFor="f-owner">
           <select id="f-owner" value={owner} onChange={(e) => setOwner(e.target.value)}>
-            {people.filter((p) => !isOpen || p.id !== s!.owner).map((p) => <option key={p.id} value={p.id}>{p.fullName} · {p.timezone || 'no time zone'}</option>)}
+            {people.filter((p) => !isOpen || p.id !== s!.owner).map((p) => <option key={p.id} value={p.id}>{p.fullName} · {range ? (availableFor(p.id, range) ? 'available' : 'not available') : (p.timezone || 'no time zone')}</option>)}
           </select>
         </Field>
       ) : null}
@@ -106,6 +116,7 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, now,
           {canReport(s, me, now) && <div><button className="btn small" type="button" onClick={() => onReport(s)}>{reports[s.id] ? 'Edit report' : 'Add report'}</button></div>}
         </div>
       )}
+      {!isViewer && (editable || isOpen) && outside && <p className={me.role === 'admin' ? 'warnline' : 'err'} data-testid="availability-warning">{outsideMsg}</p>}
       {error && <p className="err" role="alert">{error}</p>}
 
       <div className="actions">

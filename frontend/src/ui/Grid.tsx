@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
-import { uncoveredRuns, type Coverage } from '../lib/coverage';
+import { uncoveredRuns, type Coverage, type Interval } from '../lib/coverage';
 import { activeShifts, canManage, personColor, type Profile, type Shift } from '../lib/shifts';
 import { DAYS, QUARTER, addDays, dateOf, dayStartMs, hm, minLabel, rangeLabel, sameDate, tzLabel, zonedToUtc, type PlainDate } from '../lib/time';
 
 const ROW = 11, SLOTS = 96;
 
 export type NewShiftRequest = { newStart: number; newMinutes: number };
+
+/** Availability drawn behind the shifts: one person's band, or a thin lane per RCM (admin view). */
+export type Overlay = { mode: 'single' | 'lanes'; people: Array<{ id: string; name: string; color: string; intervals: Interval[] }> };
+const LANE = 6;
 
 type Props = {
   mon: PlainDate;
@@ -19,6 +23,7 @@ type Props = {
   onOpenShift: (s: Shift) => void;
   onNewShift: (r: NewShiftRequest) => void;
   onQuickDelete: (s: Shift) => void;
+  overlay: Overlay;
 };
 
 export function personName(profiles: Record<string, Profile>, id: string, me: Profile | null): string {
@@ -106,6 +111,13 @@ function DayColumn(p: Props & { date: PlainDate; act: Shift[]; booked: Shift[]; 
         p.onNewShift({ newStart: zonedToUtc(date, slotAt(e.currentTarget, e.clientY) * 15, tz), newMinutes: 60 });
       }}
     >
+      {p.overlay.people.map((person, i) => person.intervals.filter((iv) => iv.end > d0 && iv.start < dEnd).map((iv) => {
+        const a = Math.max(iv.start, d0), b = Math.min(iv.end, dEnd);
+        const style = { top: ((a - d0) / QUARTER) * ROW, height: ((b - a) / QUARTER) * ROW, ['--pc' as string]: person.color };
+        return p.overlay.mode === 'single'
+          ? <div key={person.id + iv.start} className="avail" style={style} title={`${person.name} available ${hm(iv.start, tz)}–${hm(iv.end, tz)}`} />
+          : <div key={person.id + iv.start} className="lane" style={{ ...style, left: 1 + i * LANE }} title={`${person.name} available ${hm(iv.start, tz)}–${hm(iv.end, tz)}`} />;
+      }))}
       {runs.map((r) => (
         <div key={r.from} className="gap" style={{ top: r.from * ROW, height: (r.to - r.from) * ROW }} title={`Not covered ${minLabel(r.from * 15)}–${minLabel(r.to * 15)}`} />
       ))}
@@ -134,7 +146,10 @@ function ShiftBlock(p: Props & { s: Shift; d0: number; dEnd: number }) {
       className={'shift' + (open ? ' is-open' : '') + (p.me && s.owner === p.me.id ? ' is-mine' : '')}
       role="button"
       tabIndex={0}
-      style={{ top: ((a - d0) / QUARTER) * ROW, height: Math.max(quarters * ROW, ROW), ['--pc' as string]: color }}
+      style={{
+        top: ((a - d0) / QUARTER) * ROW, height: Math.max(quarters * ROW, ROW), ['--pc' as string]: color,
+        ...(p.overlay.mode === 'lanes' && p.overlay.people.length ? { left: 3 + p.overlay.people.length * LANE } : {}),
+      }}
       aria-label={`${name} (${zone}), ${rangeLabel(s.start, s.end, tz)}${open ? ', needs cover' : ''}`}
       onClick={(e) => { e.stopPropagation(); p.onOpenShift(s); }}
       onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); p.onOpenShift(s); } }}

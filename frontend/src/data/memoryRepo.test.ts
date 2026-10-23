@@ -4,10 +4,12 @@ import type { Repo } from './repo';
 
 const H = 3_600_000;
 const t0 = Date.parse('2026-10-26T00:00:00Z');
+const allWeek = Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map((d) => [d, [{ start: 0, end: 1440 }]]));
 const users = [
   { username: 'lucia', fullName: 'Lucia De Mojà', role: 'admin' as const, password: 'demo2026pass', timezone: 'Europe/Rome' },
-  { username: 'regina', fullName: 'Regina Nemeth', role: 'rcm' as const, password: 'demo2026pass', timezone: null },
-  { username: 'kris', fullName: 'Kris Arévalo', role: 'rcm' as const, password: 'demo2026pass', timezone: 'America/Bogota' },
+  { username: 'regina', fullName: 'Regina Nemeth', role: 'rcm' as const, password: 'demo2026pass', timezone: 'Europe/Budapest', availability: allWeek },
+  { username: 'kris', fullName: 'Kris Arévalo', role: 'rcm' as const, password: 'demo2026pass', timezone: 'America/Bogota', availability: allWeek },
+  { username: 'nora', fullName: 'Nora New', role: 'rcm' as const, password: 'demo2026pass', timezone: null },
   { username: 'max', fullName: 'Max', role: 'viewer' as const, password: 'demo2026pass', timezone: 'Europe/Paris' },
 ];
 
@@ -38,7 +40,7 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
   });
 
   it('saves the time zone chosen at first login', async () => {
-    await as('regina');
+    await as('nora');
     expect((await snap()).me?.timezone).toBeNull();
     await repo.setMyTimezone('Europe/Budapest');
     expect((await snap()).me?.timezone).toBe('Europe/Budapest');
@@ -143,6 +145,34 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
     expect(s.reports[id]).toMatchObject({ workedMinutes: 120, updatedBy: ids.lucia });
     await repo.deleteReport(id);
     expect((await repo.load(past - H, now + 48 * H)).reports[id]).toBeUndefined();
+  });
+
+  it('keeps each RCM availability: usual week plus day exceptions', async () => {
+    await as('nora');
+    await repo.setMyTimezone('Europe/Rome');
+    expect((await snap()).availability[ids.nora]).toEqual({ tz: 'Europe/Rome', week: {}, days: {} });
+    await repo.setAvailability({ 1: [{ start: 840, end: 1080 }, { start: 480, end: 720 }] });
+    await repo.setAvailabilityDay('2026-10-27', [{ start: 600, end: 660 }]);
+    expect((await snap()).availability[ids.nora]).toEqual({
+      tz: 'Europe/Rome', week: { 1: [{ start: 480, end: 720 }, { start: 840, end: 1080 }] }, days: { '2026-10-27': [{ start: 600, end: 660 }] },
+    });
+    await repo.setAvailabilityDay('2026-10-27', null);
+    expect((await snap()).availability[ids.nora].days).toEqual({});
+    expect(await code(repo.setAvailability({ 1: [{ start: 480, end: 900 }, { start: 840, end: 1080 }] }))).toBe('invalid');
+  });
+
+  it('lets RCMs book only inside their availability, and admins anywhere', async () => {
+    await as('nora');
+    await repo.setMyTimezone('UTC');
+    await repo.setAvailability({ 1: [{ start: 8 * 60, end: 12 * 60 }] }); // t0 is a Monday
+    await repo.bookShift(t0 + 8 * H, t0 + 10 * H);
+    expect(await code(repo.bookShift(t0 + 11 * H, t0 + 13 * H))).toBe('invalid');
+    await as('lucia');
+    await repo.bookShift(t0 + 14 * H, t0 + 15 * H, ids.nora);
+    expect(await code(repo.setAvailability({}, ids.max))).toBe('invalid');
+    await repo.setAvailability({ 2: [{ start: 0, end: 60 }] }, ids.nora);
+    await as('kris');
+    expect(await code(repo.setAvailability({}, ids.nora))).toBe('forbidden');
   });
 
   it('notifies subscribers on every change', async () => {

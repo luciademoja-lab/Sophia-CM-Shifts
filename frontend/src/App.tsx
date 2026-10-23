@@ -4,6 +4,8 @@ import { DAY_MS, addDays, browserTimeZone, dayStartMs, weekStart } from './lib/t
 import { Board } from './ui/Board';
 import { Login } from './ui/Login';
 import { TimezonePicker } from './ui/TimezonePicker';
+import { AvailabilityForm } from './ui/AvailabilityForm';
+import { emptyAvailability } from './lib/availability';
 
 export function App({ repo }: { repo: Repo }) {
   const [uid, setUid] = useState<string | null | undefined>(undefined);
@@ -23,6 +25,7 @@ function SignedIn({ repo }: { repo: Repo }) {
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [weekOffset, setWeekOffset] = useState(0);
+  const [skippedAvailability, setSkippedAvailability] = useState(() => { try { return sessionStorage.getItem('rcm-skip-availability') === '1'; } catch { return false; } });
 
   const tz = snap?.me?.timezone || browserTimeZone();
   const mon = addDays(weekStart(Date.now(), tz), weekOffset * 7);
@@ -50,6 +53,23 @@ function SignedIn({ repo }: { repo: Repo }) {
     return (
       <div className="auth"><div className="card">
         <TimezonePicker current={null} onSave={async (z) => { await repo.setMyTimezone(z); setTick((t) => t + 1); }} />
+      </div></div>
+    );
+  }
+
+  // Step 2 for RCMs: after the time zone, ask for their availability.
+  const myAvailability = snap.me ? snap.availability[snap.me.id] : undefined;
+  const noAvailability = !myAvailability || (!Object.keys(myAvailability.week).length && !Object.keys(myAvailability.days).length);
+  if (snap.me && snap.me.role === 'rcm' && noAvailability && !skippedAvailability) {
+    const me = snap.me;
+    return (
+      <div className="wrap" style={{ maxWidth: 720 }}><div className="panel">
+        <AvailabilityForm repo={repo} me={me} owner={me} availability={myAvailability || emptyAvailability(me.timezone)}
+          weekDates={Array.from({ length: 7 }, (_, i) => addDays(mon, i))}
+          title="Add your availability"
+          intro="Tell us when you can work each week. Admins assign shifts inside these hours, and you can change them any time from “My availability”."
+          onDone={() => { setSkippedAvailability(true); setTick((t) => t + 1); }}
+          onSkip={() => { try { sessionStorage.setItem('rcm-skip-availability', '1'); } catch { /* private mode */ } setSkippedAvailability(true); }} />
       </div></div>
     );
   }

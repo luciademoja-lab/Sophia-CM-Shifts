@@ -82,6 +82,15 @@ export class TestDb {
   }
 }
 
+/** Gives an RCM a time zone and the whole week as availability (for tests about other rules). */
+export function alwaysAvailable(db: TestDb, ...ids: string[]): void {
+  const week = JSON.stringify(Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map((d) => [d, [{ start: 0, end: 1440 }]])));
+  for (const id of ids) {
+    db.exec('super', `update profiles set timezone = coalesce(timezone, 'UTC') where id = '${id}';
+      insert into availability (owner, days) values ('${id}', '${week}') on conflict (owner) do update set days = excluded.days`);
+  }
+}
+
 /** Expects a statement to fail with a message containing `fragment`. */
 export function failure(fn: () => unknown): string {
   try { fn(); } catch (e) { return (e as Error).message; }

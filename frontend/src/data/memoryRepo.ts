@@ -1,12 +1,13 @@
 // In-memory repository with the same rules as the database functions.
 // Used for demo mode (no Supabase configured) and for end-to-end tests.
-import { normalizeCoverage, validateCoverage, type Coverage, type CoverageDays } from '../lib/coverage';
+import { normalizeCoverage, validateCoverage, validateDaySlots, type Coverage, type CoverageDays, type Slot } from '../lib/coverage';
+import { isAvailable, type Availability } from '../lib/availability';
 import { findOverlap, type LogAction, type LogEntry, type Profile, type Report, type Role, type Shift } from '../lib/shifts';
 import { isValidTimeZone } from '../lib/time';
 import { normalizeUsername, validatePassword, validateUsername } from '../../../backend/supabase/functions/_shared/username.ts';
 import { RepoError, type NewLogin, type Repo, type Snapshot } from './repo';
 
-export type SeedUser = { username: string; fullName: string; role: Role; password: string; timezone?: string | null };
+export type SeedUser = { username: string; fullName: string; role: Role; password: string; timezone?: string | null; availability?: CoverageDays };
 export type Seed = { users: SeedUser[]; coverage?: Coverage | null; shifts?: Array<{ owner: string; start: number; end: number; status?: 'booked' | 'open' }> };
 
 let counter = 0;
@@ -19,6 +20,8 @@ export function createMemoryRepo(seed: Seed): Repo {
   let shifts: Shift[] = [];
   const log: LogEntry[] = [];
   const reports = new Map<string, Report>();
+  const weeks = new Map<string, CoverageDays>();
+  const exceptions = new Map<string, Record<string, Slot[]>>();
   let coverage: Coverage | null = seed.coverage ?? null;
   let me: string | null = null;
   const listeners = new Set<() => void>();
@@ -28,6 +31,7 @@ export function createMemoryRepo(seed: Seed): Repo {
     const id = newId('u');
     profiles.set(id, { id, username: normalizeUsername(u.username), fullName: u.fullName, role: u.role, timezone: u.timezone ?? null, active: true });
     passwords.set(id, u.password);
+    if (u.availability) weeks.set(id, normalizeCoverage({ tz: 'UTC', days: u.availability })!.days);
   }
   const byUsername = (u: string) => [...profiles.values()].find((p) => p.username === normalizeUsername(u));
   for (const s of seed.shifts || []) {
@@ -48,6 +52,16 @@ export function createMemoryRepo(seed: Seed): Repo {
   const range = (start: number, end: number) => {
     if (!(end > start)) fail('invalid', 'The end must be after the start.');
     if (end - start > 24 * 3_600_000) fail('invalid', 'A shift can last at most 24 hours.');
+  };
+  const availabilityOf = (id: string): Availability => ({ tz: profiles.get(id)?.timezone ?? null, week: weeks.get(id) || {}, days: exceptions.get(id) || {} });
+  const rcmAvailable = (p: Profile, owner: string, start: number, end: number) => {
+    if (p.role === 'rcm' && !isAvailable(availabilityOf(owner), start, end)) fail('invalid', 'This is outside your availability. Add these hours to your availability first.');
+  };
+  const availabilityOwner = (p: Profile, owner: string | null | undefined) => {
+    const o = owner || p.id;
+    if (o !== p.id && p.role !== 'admin') fail('forbidden', 'Only admins can change someone else\'s availability.');
+    activeRcm(o);
+    return o;
   };
   const free = (start: number, end: number, ignore: string[]) => {
     const o = findOverlap(shifts, start, end, ignore);
@@ -83,6 +97,7 @@ export function createMemoryRepo(seed: Seed): Repo {
         log: log.slice(-80).map((l) => ({ ...l })),
         coverage: coverage ? normalizeCoverage(coverage) : null,
         reports: Object.fromEntries([...reports.values()].map((r) => [r.shiftId, { ...r }])),
+        availability: Object.fromEntries([...profiles.values()].filter((p) => p.role !== 'viewer').map((p) => [p.id, structuredClone(availabilityOf(p.id))])),
       };
     },
     subscribe(cb) { listeners.add(cb); return () => listeners.delete(cb); },
@@ -96,7 +111,7 @@ export function createMemoryRepo(seed: Seed): Repo {
       const p = writer();
       const o = owner || p.id;
       if (o !== p.id && p.role !== 'admin') fail('forbidden', 'Only admins can book for someone else.');
-      activeRcm(o); range(start, end); free(start, end, []);
+      activeRcm(o); range(start, end); rcmAvailable(p, o, start, end); free(start, end, []);
       const id = newId('s');
       shifts.push({ id, owner: o, start, end, status: 'booked', coversId: null });
       write(p.id, o, restore ? 'restored' : 'booked', { id, start, end }); changed();
@@ -107,7 +122,7 @@ export function createMemoryRepo(seed: Seed): Repo {
       if (s.status !== 'booked') fail('invalid', 'Only booked shifts can be changed.');
       const o = owner || s.owner;
       if (o !== s.owner) { if (p.role !== 'admin') fail('forbidden', 'Only admins can reassign shifts.'); activeRcm(o); }
-      range(start, end); free(start, end, [s.id]);
+      range(start, end); rcmAvailable(p, o, start, end); free(start, end, [s.id]);
       Object.assign(s, { start, end, owner: o });
       write(p.id, o, 'edited', s); changed();
     },
@@ -141,6 +156,7 @@ export function createMemoryRepo(seed: Seed): Repo {
       if (!s) return fail('not_found', 'That shift no longer exists.');
       if (s.status !== 'open') fail('invalid', 'This shift does not need cover any more.');
       if (s.owner === taker) fail('invalid', 'Withdraw the cover request instead of taking your own shift.');
+      rcmAvailable(p, taker, s.start, s.end);
       free(s.start, s.end, [s.id]);
       s.status = 'covered';
       const nid = newId('s');
@@ -168,6 +184,23 @@ export function createMemoryRepo(seed: Seed): Repo {
     async deleteReport(shiftId) {
       const p = writer(); manageable(shiftId, p);
       reports.delete(shiftId); changed();
+    },
+
+    async setAvailability(week, owner) {
+      const p = writer(); const o = availabilityOwner(p, owner);
+      const err = validateCoverage(week); if (err) fail('invalid', err);
+      weeks.set(o, normalizeCoverage({ tz: 'UTC', days: week })!.days); changed();
+    },
+    async setAvailabilityDay(day, slots, owner) {
+      const p = writer(); const o = availabilityOwner(p, owner);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) fail('invalid', 'Pick a day.');
+      const ex = { ...(exceptions.get(o) || {}) };
+      if (slots === null) delete ex[day];
+      else {
+        const err = validateDaySlots(slots); if (err) fail('invalid', err);
+        ex[day] = [...slots].sort((a, b) => a.start - b.start).map((s) => ({ start: s.start, end: s.end }));
+      }
+      exceptions.set(o, ex); changed();
     },
 
     async createLogin(l: NewLogin) {

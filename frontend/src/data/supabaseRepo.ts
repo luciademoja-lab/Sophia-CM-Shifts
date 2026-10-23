@@ -1,7 +1,8 @@
 // Repository backed by Supabase: reads tables through RLS, writes through the
 // Postgres functions in backend/supabase/migrations, logins via the admin-users function.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { normalizeCoverage } from '../lib/coverage';
+import { normalizeCoverage, type Slot } from '../lib/coverage';
+import type { Availability } from '../lib/availability';
 import type { LogEntry, Profile, Report, Shift } from '../lib/shifts';
 import { loginEmail } from '../../../backend/supabase/functions/_shared/username.ts';
 import { parseDbError, RepoError, signInError, type Repo, type Snapshot } from './repo';
@@ -61,11 +62,13 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
     },
     async load(from, to): Promise<Snapshot> {
       const uid = (await sb.auth.getSession()).data.session?.user.id ?? null;
-      const [p, s, l, c] = await Promise.all([
+      const [p, s, l, c, aw, ad] = await Promise.all([
         sb.from('profiles').select('id, username, full_name, role, timezone, active'),
         sb.from('shifts').select('id, owner, starts_at, ends_at, status, covers_id').lt('starts_at', iso(to)).gt('ends_at', iso(from)).order('starts_at'),
         sb.from('shift_log').select('id, at, actor, owner, action, starts_at, ends_at, from_owner, shift_id').order('at', { ascending: false }).limit(80),
         sb.from('coverage').select('tz, days').maybeSingle(),
+        sb.from('availability').select('owner, days'),
+        sb.from('availability_days').select('owner, day, slots').gte('day', new Date(from - 2 * 86_400_000).toISOString().slice(0, 10)).lte('day', new Date(to + 2 * 86_400_000).toISOString().slice(0, 10)),
       ]);
       const profiles = Object.fromEntries((check(p) as ProfileRow[]).map((r) => [r.id, toProfile(r)]));
       const shifts = (check(s) as ShiftRow[]).map(toShift);
@@ -76,11 +79,19 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
         const r = await sb.from('shift_reports').select('shift_id, owner, worked_minutes, notes, updated_at, updated_by').in('shift_id', ids.slice(i, i + 200));
         for (const row of check(r) as ReportRow[]) reports[row.shift_id] = toReport(row);
       }
-      return { me: uid ? profiles[uid] ?? null : null, profiles, shifts, log, coverage: normalizeCoverage(check(c)), reports };
+      const availability: Record<string, Availability> = {};
+      for (const pr of Object.values(profiles)) if (pr.role !== 'viewer') availability[pr.id] = { tz: pr.timezone, week: {}, days: {} };
+      for (const row of check(aw) as Array<{ owner: string; days: unknown }>) {
+        if (availability[row.owner]) availability[row.owner].week = normalizeCoverage({ tz: 'UTC', days: row.days })?.days || {};
+      }
+      for (const row of check(ad) as Array<{ owner: string; day: string; slots: Slot[] }>) {
+        if (availability[row.owner]) availability[row.owner].days[row.day] = row.slots;
+      }
+      return { me: uid ? profiles[uid] ?? null : null, profiles, shifts, log, coverage: normalizeCoverage(check(c)), reports, availability };
     },
     subscribe(onChange) {
       const ch = sb.channel('rcm-board');
-      for (const table of ['shifts', 'shift_log', 'coverage', 'profiles', 'shift_reports']) {
+      for (const table of ['shifts', 'shift_log', 'coverage', 'profiles', 'shift_reports', 'availability', 'availability_days']) {
         ch.on('postgres_changes', { event: '*', schema: 'public', table }, () => onChange());
       }
       ch.subscribe();
@@ -102,6 +113,12 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
 
     async saveReport(shiftId, workedMinutes, notes) {
       check(await sb.rpc('save_report', { p_shift: shiftId, p_worked_minutes: workedMinutes, p_notes: notes }));
+    },
+    async setAvailability(week, owner) {
+      check(await sb.rpc('set_availability', { p_days: week, p_owner: owner ?? null }));
+    },
+    async setAvailabilityDay(day, slots, owner) {
+      check(await sb.rpc('set_availability_day', { p_day: day, p_slots: slots, p_owner: owner ?? null }));
     },
     async deleteReport(shiftId) { check(await sb.rpc('delete_report', { p_shift: shiftId })); },
 

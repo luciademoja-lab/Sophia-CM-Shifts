@@ -1,7 +1,8 @@
 // The data layer the UI talks to. Two implementations:
 //   supabaseRepo -> the real backend (Postgres functions + RLS, Auth, Realtime)
 //   memoryRepo   -> same rules in memory, for demo mode and end-to-end tests
-import type { Coverage, CoverageDays } from '../lib/coverage';
+import type { Coverage, CoverageDays, Slot } from '../lib/coverage';
+import type { Availability } from '../lib/availability';
 import type { LogEntry, Profile, Report, Role, Shift } from '../lib/shifts';
 
 export type Snapshot = {
@@ -12,6 +13,8 @@ export type Snapshot = {
   coverage: Coverage | null;
   /** reports by shift id, for the shifts and history entries in the snapshot */
   reports: Record<string, Report>;
+  /** availability of every admin and RCM, by profile id */
+  availability: Record<string, Availability>;
 };
 
 export type NewLogin = { username: string; fullName: string; password: string; role: Role };
@@ -37,6 +40,10 @@ export interface Repo {
   takeShift(id: string, forId?: string | null): Promise<string>;
   setCoverage(tz: string, days: CoverageDays): Promise<void>;
   saveReport(shiftId: string, workedMinutes: number, notes: string): Promise<void>;
+  /** usual week; owner defaults to the signed-in user (admins can pass someone else) */
+  setAvailability(week: CoverageDays, owner?: string | null): Promise<void>;
+  /** exception for a local date "YYYY-MM-DD"; null removes it, [] means not available */
+  setAvailabilityDay(day: string, slots: Slot[] | null, owner?: string | null): Promise<void>;
   deleteReport(shiftId: string): Promise<void>;
 
   createLogin(l: NewLogin): Promise<{ id: string; username: string }>;

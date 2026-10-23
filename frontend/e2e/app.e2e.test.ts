@@ -107,6 +107,8 @@ describe('time zone chosen by the RCM', () => {
     await page.getByText('Choose your time zone').waitFor();
     await page.getByLabel('Your time zone').selectOption('Asia/Jakarta');
     await page.getByRole('button', { name: 'Save time zone' }).click();
+    await page.getByText('Add your availability').waitFor();
+    await page.getByRole('button', { name: 'Skip for now' }).click();
     await page.getByText('Times shown in your time zone: Asia/Jakarta').waitFor();
   });
 
@@ -202,22 +204,90 @@ describe('hours worked and shift reports', () => {
   });
 });
 
+describe('availability and assigning shifts', () => {
+  it('asks a new RCM for availability after the time zone and shows it on the board', async () => {
+    await signIn('olizhia');
+    await page.getByLabel('Your time zone').selectOption('Asia/Jakarta');
+    await page.getByRole('button', { name: 'Save time zone' }).click();
+    await page.getByText('Add your availability').waitFor();
+    const monday = page.getByTestId('av-day-1');
+    await monday.getByRole('button', { name: 'Add slot' }).click();
+    await monday.getByLabel('Monday slot 1 from').selectOption('540');
+    await monday.getByLabel('Monday slot 1 until').selectOption('1020');
+    await page.getByRole('button', { name: 'Copy Monday to all days' }).click();
+    await page.getByRole('button', { name: 'Save availability' }).click();
+    await page.getByText('Times shown in your time zone: Asia/Jakarta').waitFor();
+    expect(await page.locator('.avail').count()).toBe(7);
+    expect(await page.getByRole('button', { name: 'My availability' }).count()).toBe(1);
+    expect(await page.locator('#view-pick').count()).toBe(0); // RCMs only see their own availability
+  });
+
+  it('lets an RCM change one day only, e.g. a day off', async () => {
+    await signIn('regina');
+    await page.getByRole('button', { name: 'My availability' }).click();
+    const firstDay = page.locator('[data-testid^="av-date-"]').first();
+    await firstDay.getByRole('checkbox').check();
+    await firstDay.getByRole('button', { name: 'Remove slot' }).click();
+    await page.getByRole('button', { name: 'Save availability' }).click();
+    await page.getByTestId('overlay').waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => document.querySelectorAll('.avail').length === 5); // usually Mon–Sat, Monday now off
+  });
+
+  it('stops an RCM from booking outside their availability', async () => {
+    await signIn('rana');
+    const col = page.locator('.col').nth(3);
+    const box = (await col.boundingBox())!;
+    const y = box.y + 11 * 4 * 9 + 2; // 09:00 Istanbul, before Rana's 15:00 start
+    await page.mouse.move(box.x + 20, y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 20, y + 11 * 4, { steps: 2 });
+    await page.mouse.up();
+    await page.getByTestId('availability-warning').waitFor();
+    await page.getByRole('button', { name: 'Book shift' }).click();
+    await page.getByText('outside your availability', { exact: false }).last().waitFor();
+    expect(await page.getByTestId('overlay').isVisible()).toBe(true);
+  });
+
+  it('shows admins everyone\'s availability and lets them assign outside it with a warning', async () => {
+    await signIn('lucia');
+    await page.locator('.lane').first().waitFor();
+    expect(await page.locator('#view-pick option').allInnerTexts()).toEqual(["Admin view: everyone's availability", 'Kris Arévalo', 'Olizhia Mairuhu', 'Rana Barakli', 'Regina Nemeth']);
+    await page.locator('.boardwrap').evaluate((el) => { el.scrollTop = 11 * 4 * 14; }); // show the afternoon and evening
+    const col = page.locator('.col').nth(4);
+    const box = (await col.boundingBox())!;
+    await page.mouse.click(box.x + 60, box.y + 11 * 4 * 20 + 2); // Friday 20:00 Rome
+    await page.getByLabel('RCM').selectOption({ label: 'Regina Nemeth · not available' });
+    await page.getByText("Outside Regina Nemeth's availability. You can still assign it.").waitFor();
+    await page.getByRole('button', { name: 'Book shift' }).click();
+    await page.getByTestId('overlay').waitFor({ state: 'hidden' });
+    await page.locator('.shift', { hasText: 'Regina Nemeth' }).nth(2).waitFor();
+  });
+
+  it('lets admins and viewers switch to one RCM\'s view', async () => {
+    await signIn('max');
+    await page.locator('#view-pick').selectOption({ label: 'Kris Arévalo' });
+    await page.locator('.avail').first().waitFor();
+    expect(await page.locator('.lane').count()).toBe(0);
+    expect(await page.getByRole('button', { name: /availability/ }).count()).toBe(0); // viewers cannot edit it
+  });
+});
+
 describe('booking (unchanged from the original board)', () => {
   it('books availability by dragging on the grid', async () => {
     await signIn('rana');
     const before = await page.locator('.shift').count();
     const col = page.locator('.col').nth(3);
     const box = (await col.boundingBox())!;
-    const y = box.y + 11 * 4 * 9 + 2; // 09:00 (the board opens scrolled to 07:00)
+    const y = box.y + 11 * 4 * 16 + 2; // 16:00 Istanbul, inside Rana's availability (15–21)
     await page.mouse.move(box.x + 20, y);
     await page.mouse.down();
     await page.mouse.move(box.x + 20, y + 11 * 8, { steps: 4 }); // two hours
     await page.mouse.up();
     await page.getByRole('button', { name: 'Book shift' }).click();
     await page.getByTestId('overlay').waitFor({ state: 'hidden' });
-    await page.locator('.shift', { hasText: '09:00–11:15' }).waitFor();
+    await page.locator('.shift', { hasText: '16:00–18:15' }).waitFor();
     expect(await page.locator('.shift').count()).toBe(before + 1);
-    expect(await page.locator('.shift', { hasText: '09:00–11:15' }).innerText()).toContain('Rana Barakli');
+    expect(await page.locator('.shift', { hasText: '16:00–18:15' }).innerText()).toContain('Rana Barakli');
   });
 
   it('refuses a second RCM in the same slot', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { TestDb, failure } from './db';
+import { TestDb, failure, alwaysAvailable } from './db';
 
 // RCMs log what they did in a shift and the hours actually worked, which can be
 // more or less than the booked slot. The shift owner and admins can edit it.
@@ -17,6 +17,7 @@ describe('shift reports', () => {
     regina = db.createUser('regina', 'Regina Nemeth');
     kris = db.createUser('kris', 'Kris Arévalo');
     max = db.createUser('max', 'Max', 'viewer');
+    alwaysAvailable(db, regina, kris);
   });
   afterAll(() => db.drop());
   beforeEach(() => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { TestDb, failure } from './db';
+import { TestDb, failure, alwaysAvailable } from './db';
 
 const T = (h: number) => `'2026-10-26T00:00:00Z'::timestamptz + interval '${h} hours'`;
 
@@ -13,6 +13,7 @@ describe('read-only viewers', () => {
     lucia = db.createUser('lucia', 'Lucia De Mojà', 'admin');
     regina = db.createUser('regina', 'Regina Nemeth');
     max = db.createUser('max', 'Max', 'viewer');
+    alwaysAvailable(db, regina);
     db.exec({ id: regina }, `select book_shift(${T(8)}, ${T(10)}, null)`);
   });
   afterAll(() => db.drop());
