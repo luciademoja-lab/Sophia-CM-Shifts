@@ -57,8 +57,8 @@ describe('weekHours', () => {
   it('adds the hours actually worked from reports, counted in the week the shift starts', () => {
     const list = [sh('a', 'reg', 8, 10), sh('b', 'reg', 30, 33), sh('d', 'reg', -3, 1)];
     const reports: Record<string, Report> = {
-      a: { shiftId: 'a', owner: 'reg', workedMinutes: 150, notes: '', updatedAt: 0, updatedBy: 'reg' },
-      d: { shiftId: 'd', owner: 'reg', workedMinutes: 240, notes: '', updatedAt: 0, updatedBy: 'reg' },
+      a: { shiftId: 'a', owner: 'reg', workedMinutes: 150, notes: '', workTypes: [], posters: '', tasks: [], updatedAt: 0, updatedBy: 'reg' },
+      d: { shiftId: 'd', owner: 'reg', workedMinutes: 240, notes: '', workTypes: [], posters: '', tasks: [], updatedAt: 0, updatedBy: 'reg' },
     };
     expect(weekHours(list, t0, t0 + 7 * 24 * H, reports)).toEqual([
       { owner: 'reg', booked: 6 * H, covering: 0, open: 0, pending: 0, worked: 150 * 60000, reported: 1 },
@@ -192,7 +192,7 @@ describe('historyText', () => {
 
 describe('toCsv', () => {
   it('exports the week with the viewer zone, UTC and each person\'s own zone', () => {
-    const reports = { a: { shiftId: 'a', owner: 'reg', workedMinutes: 150, notes: 'Onboarded "3" posters', updatedAt: 0, updatedBy: 'reg' } };
+    const reports = { a: { shiftId: 'a', owner: 'reg', workedMinutes: 150, notes: 'Onboarded "3" posters', workTypes: [], posters: '', tasks: [], updatedAt: 0, updatedBy: 'reg' } };
     const csv = toCsv([sh('a', 'reg', 8, 10), sh('b', 'kri', 30, 31, { status: 'open' })], profiles, t0, t0 + 7 * 24 * H, 'Europe/Rome', reports);
     expect(csv.split('\r\n')).toEqual([
       '"Person","Their time zone","Start (Europe/Rome)","End (Europe/Rome)","Start (UTC)","End (UTC)","Hours booked","Status","Hours worked (reported)","Report"',

@@ -4,6 +4,8 @@
 import type { Coverage, CoverageDays, Slot } from '../lib/coverage';
 import type { Availability } from '../lib/availability';
 import type { LogEntry, Profile, Report, Role, Shift } from '../lib/shifts';
+import type { ReportInput, WeeklyReport } from '../lib/work';
+import type { Task, TaskEvent, TaskInput, TaskStatus, TaskTimeRow } from '../lib/tasks';
 
 export type Snapshot = {
   me: Profile | null;
@@ -19,6 +21,14 @@ export type Snapshot = {
   requests: Shift[];
   /** availability of every admin and RCM, by profile id */
   availability: Record<string, Availability>;
+  /** tasks the signed-in person may see (none for viewers) */
+  tasks: Task[];
+  /** time linked to tasks in shift reports: everyone's for admins, own for RCMs */
+  taskTime: TaskTimeRow[];
+  /** admins only: what happened to tasks */
+  taskLog: TaskEvent[];
+  /** weekly reports: all for admins and viewers, own for RCMs */
+  weeklyReports: WeeklyReport[];
 };
 
 export type NewLogin = { username: string; fullName: string; password: string; role: Role };
@@ -43,7 +53,17 @@ export interface Repo {
   cancelAsk(id: string): Promise<void>;
   takeShift(id: string, forId?: string | null): Promise<string>;
   setCoverage(tz: string, days: CoverageDays): Promise<void>;
-  saveReport(shiftId: string, workedMinutes: number, notes: string): Promise<void>;
+  saveReport(shiftId: string, report: ReportInput): Promise<void>;
+  /** RCMs, from the Sunday of that week; week = Monday "YYYY-MM-DD" in their time zone */
+  submitWeekly(week: string, message: string): Promise<string>;
+  approveWeekly(id: string): Promise<void>;
+  rejectWeekly(id: string): Promise<void>;
+  createTask(task: TaskInput, people: string[]): Promise<string>;
+  updateTask(id: string, task: TaskInput, people: string[]): Promise<void>;
+  deleteTask(id: string): Promise<void>;
+  /** person defaults to the signed-in user */
+  moveTask(id: string, person: string | null, status: TaskStatus): Promise<void>;
+  claimTask(id: string): Promise<void>;
   approveShift(id: string): Promise<void>;
   rejectShift(id: string): Promise<void>;
   deleteLog(id: string): Promise<void>;

@@ -1,5 +1,6 @@
 // Shifts: the availability RCMs book on the board, plus the rules the board enforces.
 import { HOUR, dateOf, dateValue, hm, rangeLabel } from './time';
+import type { TaskTime, WorkType } from './work';
 
 export type ShiftStatus = 'booked' | 'open' | 'covered' | 'pending';
 export type Shift = {
@@ -42,6 +43,12 @@ export type Report = {
   owner: string;
   workedMinutes: number;
   notes: string;
+  /** kinds of work from the Vik 2.0 guide */
+  workTypes: WorkType[];
+  /** names of the posters who had issues (required with poster_issues) */
+  posters: string;
+  /** time spent on tasks during this shift */
+  tasks: TaskTime[];
   updatedAt: number;
   updatedBy: string | null;
 };

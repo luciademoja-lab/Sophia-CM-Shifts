@@ -160,48 +160,207 @@ describe('hours worked and shift reports', () => {
   async function reportAsRegina() {
     await signIn('regina');
     await page.locator('.shift', { hasText: 'Regina Nemeth (you)' }).first().click();
-    await page.getByRole('button', { name: 'Add report' }).click();
+    await page.getByTestId('overlay').getByRole('button', { name: 'Add report' }).click();
     await page.getByLabel('Hours worked').selectOption('4');
     await page.getByLabel('Minutes').selectOption('30');
-    await page.getByLabel('What did you do?').fill('Answered Zone A, onboarded 3 posters');
+    await page.getByLabel('Onboarding').check();
+    await page.getByLabel('Anything more specific? (optional)').fill('Answered Zone A, onboarded 3 posters');
     await page.getByRole('button', { name: 'Save report' }).click();
-    await page.locator('#history', { hasText: 'Answered Zone A, onboarded 3 posters' }).waitFor();
+    await page.locator('#my-reports, [data-testid="my-reports"]', { hasText: 'Answered Zone A, onboarded 3 posters' }).waitFor();
   }
 
-  it('lets an RCM log hours worked and a report, shown in the history and the hours table', async () => {
+  it('lets an RCM log hours worked and a report, shown in their hours table', async () => {
     await reportAsRegina();
-    expect(await page.locator('#history').innerText()).toContain('Regina Nemeth reported on a shift');
-    expect(await page.locator('#history').innerText()).toContain('Worked 4h 30m (booked 6h)');
+    expect(await page.getByTestId('my-reports').innerText()).toContain('Worked 4h 30m (booked 6h) · Onboarding · Answered Zone A');
     const row = page.locator('#hours tr', { hasText: 'Regina Nemeth' });
     expect(await row.innerText()).toContain('4h 30m');
   });
 
-  it('lets the RCM edit their report from the history', async () => {
-    await reportAsRegina();
-    await page.locator('#history').getByRole('button', { name: 'Edit report' }).first().click();
-    await page.getByLabel('Hours worked').selectOption('5');
-    await page.getByRole('button', { name: 'Save report' }).click();
-    await page.locator('#history', { hasText: 'Worked 5h 30m' }).waitFor();
+  it('shows RCMs only their own hours, and no history or required coverage', async () => {
+    await signIn('regina');
+    await page.locator('.shift').first().waitFor();
+    expect(await page.locator('#hours tbody tr').count()).toBe(1);
+    expect(await page.locator('#history').count()).toBe(0);
+    expect(await page.locator('#coverage').count()).toBe(0);
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('lucia');
+    await page.locator('#history').waitFor();
+    expect(await page.locator('#hours tbody tr').count()).toBeGreaterThan(1);
   });
 
-  it('lets admins edit, and keeps other RCMs and viewers read-only', async () => {
+  it("only offers the four kinds of work and needs the posters' names for posters' issues", async () => {
+    await signIn('regina');
+    await page.getByTestId('my-reports').getByRole('button', { name: 'Add report' }).first().click();
+    expect(await page.getByRole('group', { name: 'What did you do?' }).getByRole('checkbox').count()).toBe(4);
+    await page.getByRole('button', { name: 'Save report' }).click();
+    await page.getByText('Tick at least one kind of work, or link a task.').waitFor();
+    await page.getByLabel("Posters' issues").check();
+    await page.getByRole('button', { name: 'Save report' }).click();
+    await page.getByText('Write the names of the posters who had issues.').waitFor();
+    await page.getByLabel('Posters who had issues (required)').fill('Ana, Bo');
+    await page.getByRole('button', { name: 'Save report' }).click();
+    await page.getByTestId('my-reports').getByText("Posters' issues (Ana, Bo)").waitFor();
+  });
+
+  it('links time to tasks instead of ticking kinds of work, and lets the RCM delete the report', async () => {
+    await signIn('regina');
+    await page.getByTestId('my-reports').getByRole('button', { name: 'Add report' }).first().click();
+    await page.getByRole('button', { name: 'Link task' }).click();
+    await page.getByLabel(/Clean up the Zone B channel/).check();
+    await page.getByLabel(/Check new OS accounts/).check();
+    await page.getByLabel('Minutes on Clean up the Zone B channel').selectOption('120');
+    await page.getByLabel('Minutes on Check new OS accounts').selectOption('60');
+    await page.getByRole('button', { name: 'Save report' }).click();
+    await page.getByTestId('overlay').waitFor({ state: 'hidden' });
+    await page.getByRole('button', { name: 'My tasks' }).click();
+    await page.getByTestId('task-card').filter({ hasText: 'Clean up the Zone B channel' }).getByText('logged 2h').waitFor();
+    await page.getByRole('button', { name: 'Schedule' }).click();
+    await page.getByTestId('my-reports').getByRole('button', { name: 'Delete report' }).click();
+    await page.getByTestId('my-reports').getByRole('button', { name: 'Click again to delete' }).click();
+    await page.waitForFunction(() => !document.querySelector('[data-testid="my-reports"]')?.textContent?.includes('Worked'));
+  });
+
+  it('lets admins edit any report; viewers stay read-only', async () => {
     await reportAsRegina();
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await signIn('kris');
-    await page.locator('.shift').first().waitFor();
-    expect(await page.locator('#history').innerText()).not.toContain('Answered Zone A'); // RCMs only see their own history
-    expect(await page.locator('#history').getByRole('button', { name: /report/ }).count()).toBe(0);
     await page.getByRole('button', { name: 'Sign out' }).click();
     await signIn('max');
     await page.locator('#history', { hasText: 'Answered Zone A' }).waitFor();
     expect(await page.locator('#history').getByRole('button', { name: /report/ }).count()).toBe(0);
+    expect(await page.getByRole('button', { name: /Tasks/ }).count()).toBe(0); // no task page for viewers
     await page.getByRole('button', { name: 'Sign out' }).click();
     await signIn('lucia');
     await page.locator('#history').getByRole('button', { name: 'Edit report' }).first().click();
-    await page.getByLabel('What did you do?').fill('Corrected by Lucia');
+    await page.getByLabel('Anything more specific? (optional)').fill('Corrected by Lucia');
     await page.getByRole('button', { name: 'Save report' }).click();
     await page.locator('#history', { hasText: 'Corrected by Lucia' }).waitFor();
     expect(await page.locator('#history').innerText()).toContain("Lucia De Mojà edited the report on Regina Nemeth's shift");
+  });
+});
+
+describe('weekly report', () => {
+  // Pretend it is Sunday afternoon of this week (the demo builds its week around the clock).
+  async function onSunday() {
+    const d = new Date();
+    const toSunday = (7 - (d.getUTCDay() || 7)) % 7;
+    await page.clock.install({ time: Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + toSunday, 15, 0) });
+    await page.reload();
+  }
+  async function onWednesday() {
+    const d = new Date();
+    const back = (d.getUTCDay() || 7) - 3;
+    await page.clock.install({ time: Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - back, 15, 0) });
+    await page.reload();
+  }
+  async function reportMonday() {
+    await page.getByTestId('my-reports').getByRole('button', { name: 'Add report' }).first().click();
+    await page.getByLabel('Hours worked').selectOption('5');
+    await page.getByLabel('Community management').check();
+    await page.getByRole('button', { name: 'Save report' }).click();
+    await page.getByTestId('overlay').waitFor({ state: 'hidden' });
+  }
+
+  it('cannot be sent before Sunday', async () => {
+    await onWednesday();
+    await signIn('regina');
+    await reportMonday();
+    await page.getByRole('button', { name: /^Weekly report/ }).click();
+    await page.getByTestId('weekly-closed').waitFor();
+    expect(await page.getByRole('button', { name: 'Send to admins' }).isDisabled()).toBe(true);
+  });
+
+  it('is pre-written from the reported hours, sent on Sunday, approved by an admin, then logged on Upwork', async () => {
+    await onSunday();
+    await signIn('regina');
+    await reportMonday();
+    await page.getByRole('button', { name: /^Weekly report/ }).click();
+    await page.getByTestId('weekly-total').filter({ hasText: /^5h$/ }).waitFor();
+    const msg = await page.getByLabel('Message to the admins').inputValue();
+    expect(msg).toContain('Hours worked: 5h (1 shift reported)');
+    expect(msg).toContain('Community management');
+    expect(msg).toContain('Not reported yet:'); // Tuesday has no report
+    await page.getByRole('button', { name: 'Send to admins' }).click();
+    await page.getByTestId('overlay').waitFor({ state: 'hidden' });
+    // the week is now locked for the RCM
+    await page.getByTestId('my-reports').getByText('Sent in the weekly report').first().waitFor();
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('aram');
+    await page.getByRole('button', { name: /^Notifications/ }).click();
+    await page.getByTestId('weekly-requests').getByText('Regina Nemeth', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Approve hours' }).click();
+    await page.getByText('No weekly reports waiting.').waitFor();
+    await page.getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('regina');
+    await page.getByRole('button', { name: /^Weekly report/ }).click();
+    expect(await page.getByTestId('weekly-approved').innerText()).toContain('Approved by Aram Hamawandy. Now add 5h for this week to your Upwork contract.');
+  });
+});
+
+describe('tasks', () => {
+  it('shows RCMs their tasks and the ones up for grabs, never the admins\' tasks', async () => {
+    await signIn('regina');
+    await page.getByRole('button', { name: 'My tasks' }).click();
+    const titles = await page.getByTestId('task-card').allInnerTexts();
+    expect(titles.some((t) => t.includes('Clean up the Zone B channel'))).toBe(true);
+    expect(titles.some((t) => t.includes('Update the pinned links'))).toBe(true);
+    expect(titles.some((t) => t.includes('Plan December hiring'))).toBe(false);
+    expect(titles.some((t) => t.includes('Welcome message for Zone C'))).toBe(false); // Rana's
+  });
+
+  it('lets an RCM take a task up for grabs and move cards (select or drag), and admins see it', async () => {
+    await signIn('regina');
+    await page.getByRole('button', { name: 'My tasks' }).click();
+    await page.getByRole('list', { name: 'Up for grabs' }).getByRole('button', { name: 'Take it' }).click();
+    await page.getByRole('list', { name: 'To do' }).getByText('Update the pinned links in #managers-hq').waitFor();
+    await page.getByLabel('Move Update the pinned links in #managers-hq').selectOption('in_progress');
+    await page.getByRole('list', { name: 'In progress' }).getByText('Update the pinned links').waitFor();
+    const card = page.getByTestId('task-card').filter({ hasText: 'Clean up the Zone B channel' });
+    await card.dragTo(page.locator('.kcol[data-status="done"]'));
+    await page.getByRole('list', { name: 'Done' }).getByText('Clean up the Zone B channel').waitFor();
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('lucia');
+    await page.getByTestId('notif-badge').waitFor();
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+    await page.getByRole('list', { name: 'Done' }).getByText('Clean up the Zone B channel').waitFor();
+    await page.getByRole('button', { name: 'Dashboard' }).click();
+    expect(await page.getByTestId('done-total').innerText()).toBe('1');
+    expect(await page.getByTestId('done-regina').innerText()).toBe('1');
+    await page.getByRole('button', { name: /^Notifications/ }).click();
+    await page.getByText('Regina Nemeth took “Update the pinned links in #managers-hq” from the tasks up for grabs').waitFor();
+  });
+
+  it('lets admins create a task with priority and estimate for several people, each with their own status', async () => {
+    await signIn('lucia');
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+    await page.getByRole('button', { name: 'New task' }).click();
+    await page.getByLabel('Title').fill('Review Zone A guide');
+    await page.getByLabel('Priority').selectOption('urgent');
+    await page.getByLabel('Estimated hours').selectOption('2');
+    await page.getByLabel('Estimated minutes').selectOption('30');
+    await page.getByRole('group', { name: 'Assigned to' }).getByLabel('Kris Arévalo').check();
+    await page.getByRole('group', { name: 'Assigned to' }).getByLabel('Rana Barakli').check();
+    await page.getByRole('button', { name: 'Create task' }).click();
+    await page.getByTestId('overlay').waitFor({ state: 'hidden' });
+    await page.getByTestId('task-card').filter({ hasText: 'Review Zone A guide' }).nth(1).waitFor();
+    expect(await page.getByTestId('task-card').filter({ hasText: 'Review Zone A guide' }).count()).toBe(2);
+    await page.getByLabel('Move Review Zone A guide for Kris Arévalo').selectOption('done');
+    await page.getByRole('list', { name: 'Done' }).getByText('Review Zone A guide').waitFor();
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('rana');
+    await page.getByRole('button', { name: 'My tasks' }).click();
+    const card = page.getByRole('list', { name: 'To do' }).getByTestId('task-card').filter({ hasText: 'Review Zone A guide' });
+    expect(await card.innerText()).toContain('URGENT');
+    expect(await card.innerText()).toContain('Est. 2h 30m');
+  });
+
+  it('shows the RCM role page to RCMs only', async () => {
+    await signIn('kris');
+    await page.getByRole('button', { name: 'My role' }).click();
+    await page.getByRole('heading', { name: 'Recruiter & Community Manager', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('lucia');
+    await page.locator('.shift').first().waitFor();
+    expect(await page.getByRole('button', { name: 'My role' }).count()).toBe(0);
   });
 });
 
@@ -255,7 +414,7 @@ describe('availability and assigning shifts', () => {
     await requestAsRana();
     await page.locator('.shift.is-pending').click();
     await page.getByTestId('pending-note').waitFor();
-    expect(await page.getByRole('button', { name: /report|Ask for cover/ }).count()).toBe(0);
+    expect(await page.getByTestId('overlay').getByRole('button', { name: /report|Ask for cover/ }).count()).toBe(0);
     await page.getByRole('button', { name: 'Withdraw request' }).waitFor();
   });
 
@@ -291,7 +450,7 @@ describe('availability and assigning shifts', () => {
     await signIn('lucia');
     await page.locator('.lane').first().waitFor();
     expect(await page.locator('#view-pick option').allInnerTexts()).toEqual(["Admin view: everyone's availability", 'Kris Arévalo', 'Olizhia Mairuhu', 'Rana Barakli', 'Regina Nemeth']);
-    await page.locator('.boardwrap').evaluate((el) => { el.scrollTop = 11 * 4 * 14; }); // show the afternoon and evening
+    await page.locator('.boardwrap').evaluate((el) => { el.scrollIntoView({ block: 'start' }); el.scrollTop = 11 * 4 * 14; }); // show the afternoon and evening
     const col = page.locator('.col').nth(4);
     const box = (await col.boundingBox())!;
     await page.mouse.click(box.x + 60, box.y + 11 * 4 * 20 + 2); // Friday 20:00 Rome
@@ -313,13 +472,6 @@ describe('availability and assigning shifts', () => {
 });
 
 describe('history, plan and past days', () => {
-  it('shows RCMs only their own history', async () => {
-    await signIn('rana');
-    await page.locator('#history li').first().waitFor();
-    expect(await page.locator('#hist-person').count()).toBe(0);
-    for (const t of await text('#history li')) expect(t).toMatch(/Rana Barakli|Changes to shifts/);
-  });
-
   it('lets admins filter the history by person (not viewers) and delete entries', async () => {
     await signIn('lucia');
     const options = await page.locator('#hist-person option').allInnerTexts();

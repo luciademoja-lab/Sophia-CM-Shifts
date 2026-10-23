@@ -3,12 +3,19 @@
 import { isRequired, normalizeCoverage, validateCoverage, validateDaySlots, type Coverage, type CoverageDays, type Slot } from '../lib/coverage';
 import { isAvailable, type Availability } from '../lib/availability';
 import { canChange, findOverlap, historyFor, type LogAction, type LogEntry, type Profile, type Report, type Role, type Shift } from '../lib/shifts';
-import { isValidTimeZone } from '../lib/time';
+import { isValidTimeZone, parseDateValue } from '../lib/time';
+import { canSubmitWeekly, reportWeek, validateReport, weeklyMinutes, type WeeklyReport } from '../lib/work';
+import { canSeeTask, taskTimeRows, validateTask, STATUSES, type Task, type TaskEvent } from '../lib/tasks';
 import { normalizeUsername, validatePassword, validateUsername } from '../../../backend/supabase/functions/_shared/username.ts';
 import { RepoError, type NewLogin, type Repo, type Snapshot } from './repo';
 
 export type SeedUser = { username: string; fullName: string; role: Role; password: string; timezone?: string | null; availability?: CoverageDays };
-export type Seed = { users: SeedUser[]; now?: () => number; coverage?: Coverage | null; shifts?: Array<{ owner: string; start: number; end: number; status?: 'booked' | 'open' }> };
+export type SeedTask = { title: string; description?: string; priority: Task['priority']; estimateMinutes: number; assignees: string[] };
+export type Seed = {
+  users: SeedUser[]; now?: () => number; coverage?: Coverage | null;
+  shifts?: Array<{ owner: string; start: number; end: number; status?: 'booked' | 'open' }>;
+  tasks?: SeedTask[];
+};
 
 let counter = 0;
 const newId = (p: string) => `${p}${Date.now().toString(36)}${(counter++).toString(36)}`;
@@ -21,6 +28,9 @@ export function createMemoryRepo(seed: Seed): Repo {
   const log: LogEntry[] = [];
   const reports = new Map<string, Report>();
   const seen = new Map<string, number>();
+  let tasks: Task[] = [];
+  const taskLog: TaskEvent[] = [];
+  const weekly: WeeklyReport[] = [];
   const now = seed.now || (() => Date.now());
   const weeks = new Map<string, CoverageDays>();
   const exceptions = new Map<string, Record<string, Slot[]>>();
@@ -39,6 +49,15 @@ export function createMemoryRepo(seed: Seed): Repo {
   for (const s of seed.shifts || []) {
     const owner = byUsername(s.owner);
     if (owner) shifts.push({ id: newId('s'), owner: owner.id, start: s.start, end: s.end, status: s.status || 'booked', coversId: null });
+  }
+
+  const lucia = [...profiles.values()].find((p) => p.role === 'admin');
+  for (const t of seed.tasks || []) {
+    tasks.push({
+      id: newId('t'), title: t.title, description: t.description || '', priority: t.priority, estimateMinutes: t.estimateMinutes,
+      createdBy: lucia?.id ?? null, createdAt: now(),
+      assignees: t.assignees.map((u) => byUsername(u)).filter((p): p is Profile => !!p).map((p) => ({ person: p.id, status: 'todo', doneAt: null, updatedAt: now() })),
+    });
   }
 
   const changed = () => listeners.forEach((f) => f());
@@ -88,6 +107,26 @@ export function createMemoryRepo(seed: Seed): Repo {
     if (s.owner !== p.id && p.role !== 'admin') fail('forbidden', 'Only the person who booked this shift or an admin can change it.');
     return s;
   };
+  const tzOf = (id: string) => profiles.get(id)?.timezone || 'UTC';
+  const weekLocked = (p: Profile, s: Shift) => {
+    if (p.role !== 'rcm') return;
+    const w = weekly.find((x) => x.owner === s.owner && x.week === reportWeek(s.start, tzOf(s.owner)));
+    if (w && w.status !== 'rejected') fail('invalid', 'The weekly report for this week was already sent; ask an admin to change it.');
+  };
+  const taskEvent = (actor: string, t: Task, action: TaskEvent['action'], person: string | null = null, status: TaskEvent['status'] = null) => {
+    taskLog.push({ id: newId('k'), at: now(), actor, taskId: t.id, title: t.title, person, action, status });
+  };
+  const checkPeople = (people: string[]) => {
+    for (const id of people) { const t = profiles.get(id); if (!t?.active || t.role === 'viewer') fail('invalid', 'Tasks can only be assigned to admins and RCMs.'); }
+    return [...new Set(people)];
+  };
+  const decideWeekly = (id: string, status: 'approved' | 'rejected') => {
+    const p = admin('Only admins approve weekly reports.');
+    const w = weekly.find((x) => x.id === id);
+    if (!w) return fail('not_found', 'That weekly report no longer exists.');
+    if (w.status !== 'submitted') fail('invalid', 'This weekly report is not waiting for approval.');
+    Object.assign(w, { status, decidedBy: p.id, decidedAt: now() }); changed();
+  };
   const write = (actor: string, owner: string, action: LogAction, s: { id: string; start: number; end: number }, fromOwner: string | null = null) => {
     log.push({ id: newId('l'), at: now(), actor, owner, action, start: s.start, end: s.end, fromOwner, shiftId: s.id });
   };
@@ -114,6 +153,20 @@ export function createMemoryRepo(seed: Seed): Repo {
         coverage: coverage ? normalizeCoverage(coverage) : null,
         reports: Object.fromEntries([...reports.values()].map((r) => [r.shiftId, { ...r }])),
         availability: Object.fromEntries([...profiles.values()].filter((p) => p.role !== 'viewer').map((p) => [p.id, structuredClone(availabilityOf(p.id))])),
+        ...(() => {
+          const viewer = me ? profiles.get(me)! : null;
+          const role = viewer?.role;
+          const visible = tasks.filter((t) => canSeeTask(t, viewer)).map((t) => ({
+            ...t, assignees: t.assignees.filter((a) => role === 'admin' || a.person === me).map((a) => ({ ...a })),
+          }));
+          const rows = taskTimeRows([...reports.values()]).filter((x) => role === 'admin' || x.person === me);
+          return {
+            tasks: visible,
+            taskTime: role === 'viewer' ? [] : rows,
+            taskLog: role === 'admin' ? taskLog.map((e) => ({ ...e })) : [],
+            weeklyReports: weekly.filter((w) => role === 'admin' || role === 'viewer' || w.owner === me).map((w) => ({ ...w })),
+          };
+        })(),
       };
     },
     subscribe(cb) { listeners.add(cb); return () => listeners.delete(cb); },
@@ -193,19 +246,97 @@ export function createMemoryRepo(seed: Seed): Repo {
       coverage = normalizeCoverage({ tz, days }); changed();
     },
 
-    async saveReport(shiftId, workedMinutes, notes) {
+    async saveReport(shiftId, input) {
       const p = writer(); const s = manageable(shiftId, p);
       if (s.status === 'covered') fail('invalid', 'This shift was taken over; the cover shift gets the report.');
       if (s.status === 'pending') fail('invalid', 'This shift is waiting for an admin to approve it.');
       if (s.start > now()) fail('invalid', 'You can report on a shift once it has started.');
-      if (!(workedMinutes >= 0 && workedMinutes <= 1440)) fail('invalid', 'Worked hours must be between 0 and 24.');
-      if (notes.length > 4000) fail('invalid', 'The report is too long.');
-      reports.set(shiftId, { shiftId, owner: s.owner, workedMinutes, notes: notes.trim(), updatedAt: now(), updatedBy: p.id });
+      weekLocked(p, s);
+      const err = validateReport(input); if (err) fail('invalid', err);
+      for (const t of input.tasks) {
+        if (!tasks.find((x) => x.id === t.taskId)?.assignees.some((a) => a.person === s.owner)) fail('invalid', 'You can only link tasks assigned to the person who worked the shift.');
+      }
+      const poster = input.workTypes.includes('poster_issues');
+      reports.set(shiftId, {
+        shiftId, owner: s.owner, workedMinutes: input.workedMinutes, notes: input.notes.trim(), workTypes: [...input.workTypes],
+        posters: poster ? input.posters.trim() : '', tasks: input.tasks.map((t) => ({ ...t })), updatedAt: now(), updatedBy: p.id,
+      });
       write(p.id, s.owner, 'reported', s); changed();
     },
     async deleteReport(shiftId) {
-      const p = writer(); manageable(shiftId, p);
+      const p = writer(); const s = manageable(shiftId, p);
+      weekLocked(p, s);
       reports.delete(shiftId); changed();
+    },
+
+    async submitWeekly(week, message) {
+      const p = writer();
+      if (p.role !== 'rcm') fail('forbidden', 'Only RCMs send weekly reports.');
+      const d = parseDateValue(week);
+      if (!d || new Date(Date.UTC(d.y, d.m - 1, d.d)).getUTCDay() !== 1) fail('invalid', 'Pick the Monday of the week.');
+      const tz = tzOf(p.id);
+      if (!canSubmitWeekly(week, tz, now())) fail('invalid', 'You can send the weekly report from Sunday.');
+      if (!message.trim() || message.length > 8000) fail('invalid', 'Write the weekly report (up to 8000 characters).');
+      const minutes = weeklyMinutes(p.id, week, tz, shifts, Object.fromEntries(reports));
+      const w = weekly.find((x) => x.owner === p.id && x.week === week);
+      if (w) {
+        if (w.status === 'approved') fail('invalid', 'This weekly report was already approved.');
+        Object.assign(w, { workedMinutes: minutes, message: message.trim(), status: 'submitted', submittedAt: now(), decidedBy: null, decidedAt: null });
+        changed(); return w.id;
+      }
+      const id = newId('w');
+      weekly.push({ id, owner: p.id, week, workedMinutes: minutes, message: message.trim(), status: 'submitted', submittedAt: now(), decidedBy: null, decidedAt: null });
+      changed(); return id;
+    },
+    async approveWeekly(id) { decideWeekly(id, 'approved'); },
+    async rejectWeekly(id) { decideWeekly(id, 'rejected'); },
+
+    async createTask(input, people) {
+      const p = admin('Only admins can create tasks.');
+      const err = validateTask(input); if (err) fail('invalid', err);
+      const list = checkPeople(people);
+      const t: Task = {
+        id: newId('t'), title: input.title.trim(), description: input.description.trim(), priority: input.priority, estimateMinutes: input.estimateMinutes,
+        createdBy: p.id, createdAt: now(), assignees: list.map((person) => ({ person, status: 'todo', doneAt: null, updatedAt: now() })),
+      };
+      tasks.push(t); taskEvent(p.id, t, 'created'); changed();
+      return t.id;
+    },
+    async updateTask(id, input, people) {
+      const p = admin('Only admins can change tasks.');
+      const t = tasks.find((x) => x.id === id); if (!t) return fail('not_found', 'That task no longer exists.');
+      const err = validateTask(input); if (err) fail('invalid', err);
+      const list = checkPeople(people);
+      Object.assign(t, { title: input.title.trim(), description: input.description.trim(), priority: input.priority, estimateMinutes: input.estimateMinutes });
+      t.assignees = list.map((person) => t.assignees.find((a) => a.person === person) || { person, status: 'todo', doneAt: null, updatedAt: now() });
+      taskEvent(p.id, t, 'edited'); changed();
+    },
+    async deleteTask(id) {
+      const p = admin('Only admins can delete tasks.');
+      const t = tasks.find((x) => x.id === id);
+      if (!t) return;
+      tasks = tasks.filter((x) => x.id !== id);
+      for (const rp of reports.values()) rp.tasks = rp.tasks.filter((x) => x.taskId !== id);
+      taskEvent(p.id, t, 'deleted'); changed();
+    },
+    async moveTask(id, person, status) {
+      const p = writer(); const who = person || p.id;
+      if (who !== p.id && p.role !== 'admin') fail('forbidden', 'You can only move your own tasks.');
+      if (!STATUSES.includes(status)) fail('invalid', 'Unknown status.');
+      const t = tasks.find((x) => x.id === id);
+      const a = t?.assignees.find((x) => x.person === who);
+      if (!t || !a) return fail('not_found', 'That task is not assigned to this person.');
+      a.doneAt = status === 'done' ? (a.status === 'done' ? a.doneAt : now()) : null;
+      a.status = status; a.updatedAt = now();
+      taskEvent(p.id, t, 'moved', who, status); changed();
+    },
+    async claimTask(id) {
+      const p = writer();
+      if (p.role !== 'rcm') fail('forbidden', 'Admins assign tasks from the task editor.');
+      const t = tasks.find((x) => x.id === id); if (!t) return fail('not_found', 'That task no longer exists.');
+      if (t.assignees.length) fail('invalid', 'Someone already took this task.');
+      t.assignees.push({ person: p.id, status: 'todo', doneAt: null, updatedAt: now() });
+      taskEvent(p.id, t, 'claimed', p.id, 'todo'); changed();
     },
 
     async setAvailability(week, owner) {

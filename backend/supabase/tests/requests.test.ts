@@ -75,9 +75,9 @@ describe('requests, approvals and history by role', () => {
     it('blocks reports until the request is approved', () => {
       const a = book(regina, day(-1, 14), day(-1, 16));
       expect(status(a)).toBe('pending');
-      expect(failure(() => db.exec({ id: regina }, `select save_report('${a}', 60, 'x')`))).toMatch(/RCM_INVALID/);
+      expect(failure(() => db.exec({ id: regina }, `select save_report('${a}', 60, 'x', array['community'], '', '[]')`))).toMatch(/RCM_INVALID/);
       db.exec({ id: admin }, `select approve_shift('${a}')`);
-      expect(() => db.exec({ id: regina }, `select save_report('${a}', 60, 'x')`)).not.toThrow();
+      expect(() => db.exec({ id: regina }, `select save_report('${a}', 60, 'x', array['community'], '', '[]')`)).not.toThrow();
     });
   });
 

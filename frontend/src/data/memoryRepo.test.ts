@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createMemoryRepo } from './memoryRepo';
 import type { Repo } from './repo';
+import type { ReportInput } from '../lib/work';
 
 const H = 3_600_000;
 const t0 = Date.parse('2026-10-26T00:00:00Z'); // a Monday
@@ -13,6 +14,9 @@ const users = [
   { username: 'nora', fullName: 'Nora New', role: 'rcm' as const, password: 'demo2026pass', timezone: null },
   { username: 'max', fullName: 'Max', role: 'viewer' as const, password: 'demo2026pass', timezone: 'Europe/Paris' },
 ];
+
+const rep = (workedMinutes: number, notes: string, extra: Partial<ReportInput> = {}): ReportInput =>
+  ({ workedMinutes, notes, workTypes: ['community'], posters: '', tasks: [], ...extra });
 
 async function code(p: Promise<unknown>): Promise<string> {
   try { await p; } catch (e) { return (e as { code: string }).code; }
@@ -132,18 +136,18 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
     await as('regina');
     const id = await repo.bookShift(past, past + 3 * H);
     const later = await repo.bookShift(now + 24 * H, now + 26 * H);
-    await repo.saveReport(id, 150, 'Answered #zone-a');
-    expect(await code(repo.saveReport(later, 60, 'too early'))).toBe('invalid');
-    expect(await code(repo.saveReport(id, 1500, 'x'))).toBe('invalid');
+    await repo.saveReport(id, rep(150, 'Answered #zone-a'));
+    expect(await code(repo.saveReport(later, rep(60, 'too early')))).toBe('invalid');
+    expect(await code(repo.saveReport(id, rep(1500, 'x')))).toBe('invalid');
     let s = await repo.load(past - H, now + 48 * H);
     expect(s.reports[id]).toMatchObject({ owner: ids.regina, workedMinutes: 150, notes: 'Answered #zone-a', updatedBy: ids.regina });
     expect(s.log.pop()).toMatchObject({ action: 'reported', shiftId: id });
     await as('kris');
-    expect(await code(repo.saveReport(id, 10, 'not mine'))).toBe('forbidden');
+    expect(await code(repo.saveReport(id, rep(10, 'not mine')))).toBe('forbidden');
     await as('max');
-    expect(await code(repo.saveReport(id, 10, 'read only'))).toBe('forbidden');
+    expect(await code(repo.saveReport(id, rep(10, 'read only')))).toBe('forbidden');
     await as('lucia');
-    await repo.saveReport(id, 120, 'Corrected');
+    await repo.saveReport(id, rep(120, 'Corrected'));
     s = await repo.load(past - H, now + 48 * H);
     expect(s.reports[id]).toMatchObject({ workedMinutes: 120, updatedBy: ids.lucia });
     await repo.deleteReport(id);
@@ -236,5 +240,87 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
     off();
     await repo.bookShift(t0 + H, t0 + 2 * H);
     expect(n).toBe(1);
+  });
+});
+
+describe('memoryRepo: reports, weekly reports and tasks', () => {
+  // Week of Mon 19 Oct 2026; Regina works in UTC here to keep the arithmetic simple.
+  const mon = Date.parse('2026-10-19T00:00:00Z');
+  let clock = Date.parse('2026-10-23T12:00:00Z'); // Friday
+  let repo: Repo;
+  const ids: Record<string, string> = {};
+  const as = async (u: string) => { await repo.signOut(); await repo.signIn(u, 'demo2026pass'); };
+  const snap = () => repo.load(mon - 24 * H, mon + 15 * 24 * H);
+  const task = { title: 'Clean Zone B', description: '', priority: 'high' as const, estimateMinutes: 120 };
+
+  beforeEach(async () => {
+    clock = Date.parse('2026-10-23T12:00:00Z');
+    repo = createMemoryRepo({ users: users.map((u) => (u.username === 'regina' ? { ...u, timezone: 'UTC' } : u)), now: () => clock });
+    await as('lucia');
+    for (const p of Object.values((await snap()).profiles)) ids[p.username] = p.id;
+  });
+
+  it('validates report kinds and posters, and links time to the RCM\'s own tasks', async () => {
+    const t = await repo.createTask(task, [ids.regina]);
+    const other = await repo.createTask({ ...task, title: 'Kris only' }, [ids.kris]);
+    await as('regina');
+    const s = await repo.bookShift(mon + 8 * H, mon + 14 * H);
+    expect(await code(repo.saveReport(s, rep(300, '', { workTypes: [] })))).toBe('invalid');
+    expect(await code(repo.saveReport(s, rep(300, '', { workTypes: ['poster_issues'] })))).toBe('invalid');
+    expect(await code(repo.saveReport(s, rep(300, '', { tasks: [{ taskId: other, minutes: 30 }] })))).toBe('invalid');
+    await repo.saveReport(s, rep(300, 'ok', { workTypes: ['poster_issues'], posters: 'Ana', tasks: [{ taskId: t, minutes: 90 }] }));
+    const snapRegina = await snap();
+    expect(snapRegina.reports[s]).toMatchObject({ workTypes: ['poster_issues'], posters: 'Ana', tasks: [{ taskId: t, minutes: 90 }] });
+    expect(snapRegina.taskTime).toEqual([{ taskId: t, person: ids.regina, minutes: 90 }]);
+    await as('kris');
+    expect((await snap()).taskTime).toEqual([]);
+  });
+
+  it('sends the weekly report from Sunday, counts reported hours and locks the week until an admin decides', async () => {
+    await as('regina');
+    const s = await repo.bookShift(mon + 8 * H, mon + 14 * H);
+    await repo.saveReport(s, rep(330, 'x'));
+    expect(await code(repo.submitWeekly('2026-10-19', 'My week'))).toBe('invalid'); // Friday
+    clock = Date.parse('2026-10-25T00:00:00Z'); // Sunday 00:00 UTC
+    const id = await repo.submitWeekly('2026-10-19', 'My week');
+    expect((await snap()).weeklyReports).toMatchObject([{ id, owner: ids.regina, week: '2026-10-19', workedMinutes: 330, status: 'submitted' }]);
+    expect(await code(repo.saveReport(s, rep(300, 'x')))).toBe('invalid');
+    await as('kris');
+    expect((await snap()).weeklyReports).toEqual([]);
+    expect(await code(repo.approveWeekly(id))).toBe('forbidden');
+    await as('lucia');
+    expect(await code(repo.submitWeekly('2026-10-19', 'x'))).toBe('forbidden');
+    await repo.approveWeekly(id);
+    expect((await snap()).weeklyReports[0]).toMatchObject({ status: 'approved', decidedBy: ids.lucia });
+    await as('regina');
+    expect(await code(repo.submitWeekly('2026-10-19', 'again'))).toBe('invalid');
+  });
+
+  it('runs tasks: visibility, per-person status, claiming and admin-only log', async () => {
+    const shared = await repo.createTask(task, [ids.regina, ids.kris]);
+    await repo.createTask({ ...task, title: 'Admin' }, [ids.lucia]);
+    const free = await repo.createTask({ ...task, title: 'Free' }, []);
+    expect(await code(repo.createTask({ ...task, estimateMinutes: 0 }, []))).toBe('invalid');
+    await as('regina');
+    expect((await snap()).tasks.map((t) => t.title).sort()).toEqual(['Clean Zone B', 'Free']);
+    expect(await code(repo.createTask(task, []))).toBe('forbidden');
+    await repo.moveTask(shared, null, 'done');
+    expect(await code(repo.moveTask(shared, ids.kris, 'done'))).toBe('forbidden');
+    await repo.claimTask(free);
+    expect((await snap()).taskLog).toEqual([]);
+    await as('kris');
+    expect(await code(repo.claimTask(free))).toBe('invalid');
+    await as('max');
+    expect((await snap()).tasks).toEqual([]);
+    await as('lucia');
+    const s = await snap();
+    const sh = s.tasks.find((t) => t.id === shared)!;
+    expect(sh.assignees.map((a) => [a.person === ids.regina ? 'regina' : 'kris', a.status])).toEqual([['regina', 'done'], ['kris', 'todo']]);
+    expect(sh.assignees[0].doneAt).toBe(clock);
+    expect(s.taskLog.map((e) => e.action)).toEqual(['created', 'created', 'created', 'moved', 'claimed']);
+    await repo.updateTask(shared, { ...task, priority: 'urgent' }, [ids.regina]);
+    expect((await snap()).tasks.find((t) => t.id === shared)!.assignees).toMatchObject([{ person: ids.regina, status: 'done' }]);
+    await repo.deleteTask(shared);
+    expect((await snap()).tasks.some((t) => t.id === shared)).toBe(false);
   });
 });

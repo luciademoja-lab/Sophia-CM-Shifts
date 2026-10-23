@@ -16,17 +16,27 @@ import { ShiftEditor, type EditorCtx } from './ShiftEditor';
 import { TeamModal } from './TeamModal';
 import { TimezonePicker } from './TimezonePicker';
 import { ReportEditor } from './ReportEditor';
+import { WeeklyReportModal } from './WeeklyReport';
+import { TasksPage } from './TasksPage';
+import { Dashboard } from './Dashboard';
+import { RolePage } from './RolePage';
+import { dateValue } from '../lib/time';
 
 type Props = { repo: Repo; snap: Snapshot; tz: string; mon: PlainDate; onWeek: (delta: number | null) => void; loadError: string | null };
-type Dialog = { kind: 'shift'; ctx: EditorCtx } | { kind: 'report'; shift: Shift } | { kind: 'coverage' } | { kind: 'team' } | { kind: 'tz' } | { kind: 'availability'; owner: Profile } | { kind: 'notifications' } | null;
+type Dialog = { kind: 'shift'; ctx: EditorCtx } | { kind: 'report'; shift: Shift } | { kind: 'coverage' } | { kind: 'team' } | { kind: 'tz' } | { kind: 'availability'; owner: Profile } | { kind: 'notifications' } | { kind: 'weekly' } | null;
+type Page = 'schedule' | 'tasks' | 'dashboard' | 'role';
 type Toast = { msg: string; undo?: () => Promise<unknown> } | null;
 
 export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
-  const { me, profiles, shifts, coverage, log, reports, availability, requests, notificationsSeenAt } = snap;
+  const { me, profiles, shifts, coverage, log, reports, availability, requests, notificationsSeenAt, tasks, taskTime, taskLog, weeklyReports } = snap;
   const isAdmin = me?.role === 'admin';
   const canBook = canWrite(me);
   const isViewer = me?.role === 'viewer';
   const [dialog, setDialog] = useState<Dialog>(null);
+  const isRcm = me?.role === 'rcm';
+  const pages: Array<[Page, string]> = [['schedule', 'Schedule'], ...(isViewer ? [] : [['tasks', isRcm ? 'My tasks' : 'Tasks'] as [Page, string]]),
+    ...(isAdmin ? [['dashboard', 'Dashboard'] as [Page, string]] : []), ...(isRcm ? [['role', 'My role'] as [Page, string]] : [])];
+  const [page, setPage] = useState<Page>('schedule');
   const [toast, setToast] = useState<Toast>(null);
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60_000); return () => clearInterval(t); }, []);
@@ -69,7 +79,9 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
   async function assignAll() {
     for (const g of plan?.suggestions || []) await assign(g);
   }
-  const unread = isAdmin ? unreadCount(log, requests, profiles, me, notificationsSeenAt) : 0;
+  const unread = isAdmin ? unreadCount(log, requests, profiles, me, notificationsSeenAt, weeklyReports, taskLog) : 0;
+  const weekKey = dateValue(mon);
+  const myWeekly = isRcm ? weeklyReports.find((w) => w.owner === me!.id && w.week === weekKey) : undefined;
 
   const editableAvailability = me && shown !== 'team' && profiles[shown] && (shown === me.id ? me.role === 'rcm' || me.role === 'admin' : isAdmin) ? profiles[shown] : null;
 
@@ -121,6 +133,11 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
               {editableAvailability.id === me?.id ? 'My availability' : `Edit ${editableAvailability.fullName.split(' ')[0]}'s availability`}
             </button>
           )}
+          {isRcm && (
+            <button className="btn" type="button" onClick={() => setDialog({ kind: 'weekly' })}>
+              Weekly report{myWeekly ? <span className={'pill ' + myWeekly.status}>{{ submitted: 'sent', approved: 'approved', rejected: 'sent back' }[myWeekly.status]}</span> : null}
+            </button>
+          )}
           {isAdmin && (
             <button className="btn" type="button" aria-label={`Notifications${unread ? `, ${unread} new` : ''}`} onClick={() => setDialog({ kind: 'notifications' })}>
               Notifications{unread > 0 && <span className="badge" data-testid="notif-badge">{unread}</span>}
@@ -134,6 +151,17 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
       {isViewer && <div className="banner">You have read-only access: you can see the board, the history and the reports, but not change them.</div>}
       {repo.mode === 'demo' && <div className="banner">Demo mode: data lives in this tab only and resets when you reload.</div>}
       {loadError && <div className="banner err">{loadError}</div>}
+
+      {pages.length > 1 && (
+        <nav className="pagetabs" aria-label="Pages">
+          {pages.map(([k, label]) => <button key={k} type="button" aria-current={page === k ? 'page' : undefined} onClick={() => setPage(k)}>{label}</button>)}
+        </nav>
+      )}
+
+      {page === 'tasks' && me && <TasksPage repo={repo} me={me} profiles={profiles} tasks={tasks} taskTime={taskTime} tz={tz} />}
+      {page === 'dashboard' && isAdmin && <Dashboard profiles={profiles} tasks={tasks} taskTime={taskTime} weeklyReports={weeklyReports} mon={mon} w0={w0} w1={w1} />}
+      {page === 'role' && <RolePage />}
+      {page === 'schedule' && (<>
 
       <section className="strip">
         <div className={'stat ' + (onDuty ? 'good' : 'bad')}><span className="eyebrow">On duty now</span><span className="v">{onDuty ? name(onDuty.owner) : 'Nobody'}</span></div>
@@ -176,16 +204,18 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
 
       <section className="panels">
         {plan && <PlanPanel plan={plan} profiles={profiles} tz={tz} showGhosts={showGhosts} onToggleGhosts={() => setShowGhosts((v) => !v)} onAssign={assign} onAssignAll={assignAll} />}
-        <HoursPanel shifts={shifts} reports={reports} availability={availability} profiles={profiles} me={me} from={w0} to={w1} onExport={exportCsv} />
-        <CoveragePanel coverage={coverage} isAdmin={isAdmin} onEdit={() => setDialog({ kind: 'coverage' })} />
-        <HistoryPanel log={log} profiles={profiles} tz={tz} shifts={shifts} reports={reports} me={me} now={now} onReport={(s) => setDialog({ kind: 'report', shift: s })} onDelete={isAdmin ? (id) => repo.deleteLog(id) : undefined} />
+        <HoursPanel shifts={shifts} reports={reports} availability={availability} profiles={profiles} me={me} from={w0} to={w1} now={now} tz={tz} weeklyReports={weeklyReports}
+          onExport={exportCsv} onReport={(s) => setDialog({ kind: 'report', shift: s })} onDeleteReport={(s) => repo.deleteReport(s.id)} />
+        {!isRcm && <CoveragePanel coverage={coverage} isAdmin={isAdmin} onEdit={() => setDialog({ kind: 'coverage' })} />}
+        {!isRcm && <HistoryPanel log={log} profiles={profiles} tz={tz} shifts={shifts} reports={reports} me={me} now={now} onReport={(s) => setDialog({ kind: 'report', shift: s })} onDelete={isAdmin ? (id) => repo.deleteLog(id) : undefined} />}
       </section>
+      </>)}
 
       {dialog?.kind === 'shift' && me && (
         <ShiftEditor ctx={dialog.ctx} repo={repo} tz={tz} me={me} profiles={profiles} shifts={shifts} reports={reports} availability={availability} coverage={coverage} now={now} onClose={() => setDialog(null)} onReport={(s) => setDialog({ kind: 'report', shift: s })} />
       )}
       {dialog?.kind === 'report' && me && (
-        <ReportEditor repo={repo} shift={dialog.shift} report={reports[dialog.shift.id]} tz={tz} me={me} profiles={profiles} onClose={() => setDialog(null)} />
+        <ReportEditor repo={repo} shift={dialog.shift} report={reports[dialog.shift.id]} tz={tz} me={me} profiles={profiles} tasks={tasks} weeklyReports={weeklyReports} onClose={() => setDialog(null)} />
       )}
       {dialog?.kind === 'availability' && me && (
         <Modal label="Availability" wide onClose={() => setDialog(null)}>
@@ -197,7 +227,10 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
       )}
       {dialog?.kind === 'coverage' && <CoverageEditor repo={repo} coverage={coverage} fallbackTz={tz} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'notifications' && me && (
-        <NotificationsModal repo={repo} me={me} profiles={profiles} tz={tz} log={log} requests={requests} seenAt={notificationsSeenAt} onClose={() => setDialog(null)} />
+        <NotificationsModal repo={repo} me={me} profiles={profiles} tz={tz} log={log} requests={requests} seenAt={notificationsSeenAt} weeklyReports={weeklyReports} taskLog={taskLog} onClose={() => setDialog(null)} />
+      )}
+      {dialog?.kind === 'weekly' && me && (
+        <WeeklyReportModal repo={repo} me={me} profiles={profiles} week={weekKey} now={now} shifts={shifts} reports={reports} tasks={tasks} weekly={myWeekly} onClose={() => setDialog(null)} />
       )}
       {dialog?.kind === 'team' && me && <TeamModal repo={repo} me={me} profiles={profiles} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'tz' && (

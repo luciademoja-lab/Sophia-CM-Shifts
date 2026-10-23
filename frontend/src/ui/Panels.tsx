@@ -1,23 +1,35 @@
 import { coverageText, hasTarget, type Coverage, type Weekday } from '../lib/coverage';
 import { useState } from 'react';
 import { canReport, historyFor, historyText, latestEntryPerShift, personColor, weekHours, type LogEntry, type Profile, type Report, type Shift } from '../lib/shifts';
-import { DAYS_LONG, dayLabel, dur, hm, tzLabel } from '../lib/time';
+import { DAYS_LONG, dayLabel, dur, hm, rangeLabel, tzLabel } from '../lib/time';
+import type { WeeklyReport } from '../lib/work';
 import { availableMinutes, type Availability } from '../lib/availability';
 import type { Plan, Suggestion } from '../lib/plan';
 import { errorText } from './errors';
 import { personName } from './Grid';
-import { reportSummary } from './ReportEditor';
+import { reportLocked, reportSummary } from './ReportEditor';
 
-export function HoursPanel({ shifts, reports, availability, profiles, me, from, to, onExport }: { shifts: Shift[]; reports: Record<string, Report>; availability: Record<string, Availability>; profiles: Record<string, Profile>; me: Profile | null; from: number; to: number; onExport: () => void }) {
+type HoursProps = {
+  shifts: Shift[]; reports: Record<string, Report>; availability: Record<string, Availability>; profiles: Record<string, Profile>;
+  me: Profile | null; from: number; to: number; now: number; tz: string; weeklyReports: WeeklyReport[];
+  onExport: () => void; onReport: (s: Shift) => void; onDeleteReport: (s: Shift) => Promise<void>;
+};
+
+export function HoursPanel({ shifts, reports, availability, profiles, me, from, to, now, tz, weeklyReports, onExport, onReport, onDeleteReport }: HoursProps) {
+  const own = me?.role === 'rcm';
   const hours = weekHours(shifts, from, to, reports);
   const offered = Object.fromEntries(Object.entries(availability).map(([id, a]) => [id, availableMinutes(a, from, to)]));
   const rows = [...hours, ...Object.keys(offered).filter((id) => offered[id] > 0 && profiles[id]?.active && !hours.some((h) => h.owner === id))
-    .map((owner) => ({ owner, booked: 0, covering: 0, open: 0, pending: 0, worked: 0, reported: 0 }))];
+    .map((owner) => ({ owner, booked: 0, covering: 0, open: 0, pending: 0, worked: 0, reported: 0 }))]
+    .filter((h) => !own || h.owner === me!.id);
+  // RCMs: their own started shifts this week, to add or remove reports
+  const mine = own ? shifts.filter((x) => x.owner === me!.id && x.start >= from && x.start < to && x.start <= now && (x.status === 'booked' || x.status === 'open')).sort((a, b) => a.start - b.start) : [];
+  const [armed, setArmed] = useState<string | null>(null);
   return (
     <div className="panel wide">
-      <div className="panel-head"><h2>Availability and hours this week</h2><button className="btn" type="button" onClick={onExport}>Export CSV</button></div>
+      <div className="panel-head"><h2>{own ? 'My availability and hours this week' : 'Availability and hours this week'}</h2>{!own && <button className="btn" type="button" onClick={onExport}>Export CSV</button>}</div>
       <div id="hours">
-        {!rows.length ? <p className="empty">Nobody has booked availability this week yet.</p> : (<>
+        {!rows.length ? <p className="empty">{own ? 'No availability or shifts this week yet.' : 'Nobody has booked availability this week yet.'}</p> : (<>
           <table>
             <thead><tr><th>Person</th><th className="num">Offered</th><th className="num">Shifts</th><th className="num">Covering</th><th className="num">Needs cover</th><th className="num">Worked</th></tr></thead>
             <tbody>
@@ -39,8 +51,35 @@ export function HoursPanel({ shifts, reports, availability, profiles, me, from, 
               })}
             </tbody>
           </table>
-          <p className="note">Offered is the availability each RCM gave for this week. Shifts are the hours booked or assigned. Worked is what RCMs logged in their shift reports.</p>
+          <p className="note">Offered is the availability {own ? 'you' : 'each RCM'} gave for this week. Shifts are the hours booked or assigned. Worked is what {own ? 'you' : 'RCMs'} logged in shift reports.</p>
         </>)}
+        {own && (
+          <div className="myshifts">
+            <h3>My shift reports</h3>
+            {!mine.length ? <p className="empty">Reports open once a shift has started.</p> : (
+              <ul className="hist" data-testid="my-reports">
+                {mine.map((x) => {
+                  const rp = reports[x.id];
+                  const locked = !!me && reportLocked(x, me, profiles, weeklyReports);
+                  return (
+                    <li key={x.id}>
+                      <time>{rangeLabel(x.start, x.end, tz)}</time>
+                      <div>
+                        <span>{rp ? reportSummary(rp, x.end - x.start) : 'No report yet'}</span>
+                        <div className="report">
+                          {locked ? <span className="muted">Sent in the weekly report</span> : (<>
+                            <button className="btn small" type="button" onClick={() => onReport(x)}>{rp ? 'Edit report' : 'Add report'}</button>
+                            {rp && <button className="btn small danger" type="button" onClick={() => { if (armed === x.id) { setArmed(null); onDeleteReport(x).catch(() => undefined); } else setArmed(x.id); }}>{armed === x.id ? 'Click again to delete' : 'Delete report'}</button>}
+                          </>)}
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

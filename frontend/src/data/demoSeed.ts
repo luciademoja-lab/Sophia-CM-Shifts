@@ -24,6 +24,13 @@ export function demoSeed(now: number): Seed {
       tz,
       days: Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map((d) => [d, [{ start: 7 * 60, end: 13 * 60 }, { start: 14 * 60, end: 24 * 60 }]])),
     },
+    tasks: [
+      { title: 'Clean up the Zone B channel', description: 'Pin the guide again and archive old threads.', priority: 'high', estimateMinutes: 120, assignees: ['regina'] },
+      { title: 'Check new OS accounts', priority: 'normal', estimateMinutes: 60, assignees: ['regina', 'kris'] },
+      { title: 'Welcome message for Zone C', priority: 'normal', estimateMinutes: 45, assignees: ['rana'] },
+      { title: 'Update the pinned links in #managers-hq', priority: 'low', estimateMinutes: 30, assignees: [] },
+      { title: 'Plan December hiring targets', priority: 'urgent', estimateMinutes: 180, assignees: ['lucia'] },
+    ],
     shifts: [
       { owner: 'regina', start: at(0, 7), end: at(0, 13) },
       { owner: 'rana', start: at(0, 14), end: at(0, 19) },

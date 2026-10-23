@@ -26,7 +26,7 @@ describe('shift reports', () => {
   });
 
   const save = (as: string, minutes: number, notes: string, id = shift) =>
-    db.exec({ id: as }, `select save_report('${id}', ${minutes}, '${notes.replace(/'/g, "''")}')`);
+    db.exec({ id: as }, `select save_report('${id}', ${minutes}, '${notes.replace(/'/g, "''")}', array['community'], '', '[]')`);
   const report = () => db.rows('super', `select owner, worked_minutes, notes, updated_by from shift_reports where shift_id = '${shift}'`)[0];
 
   it('lets the RCM report hours worked and what they did, even more or less than booked', () => {
