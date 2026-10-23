@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  normalizeUsername, validateUsername, validatePassword, usernameToEmail, emailToUsername, generatePassword, LOGIN_DOMAIN,
+  normalizeUsername, validateUsername, loginEmail, validatePassword, usernameToEmail, emailToUsername, generatePassword, LOGIN_DOMAIN,
 } from '../../../backend/supabase/functions/_shared/username.ts';
 
 describe('usernames (logins made by us)', () => {
@@ -17,6 +17,10 @@ describe('usernames (logins made by us)', () => {
     expect(validateUsername('regina nemeth')).toBe('Use only letters, numbers, dots, dashes and underscores.');
     expect(validateUsername('.regina')).toBe('Start with a letter or a number.');
     expect(validateUsername('régina')).toBe('Use only letters, numbers, dots, dashes and underscores.');
+  });
+  it('signs in with a username or, if typed, a full email', () => {
+    expect(loginEmail(' Lucia ')).toBe(`lucia@${LOGIN_DOMAIN}`);
+    expect(loginEmail(' Operations2@VikStudios.com ')).toBe('operations2@vikstudios.com');
   });
   it('maps a username to the internal sign-in email and back', () => {
     expect(usernameToEmail('Regina')).toBe(`regina@${LOGIN_DOMAIN}`);

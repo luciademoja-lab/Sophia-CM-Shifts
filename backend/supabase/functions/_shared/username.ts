@@ -26,6 +26,12 @@ export function usernameToEmail(u: string, domain: string = LOGIN_DOMAIN): strin
   return `${normalizeUsername(u)}@${domain}`;
 }
 
+/** What to send to Supabase Auth: the internal address for a username, or the email as typed. */
+export function loginEmail(input: string): string {
+  const v = (input || '').trim().toLowerCase();
+  return v.includes('@') ? v : usernameToEmail(v);
+}
+
 export function emailToUsername(email: string, domain: string = LOGIN_DOMAIN): string | null {
   const suffix = '@' + domain;
   return email && email.toLowerCase().endsWith(suffix) ? email.slice(0, -suffix.length).toLowerCase() : null;

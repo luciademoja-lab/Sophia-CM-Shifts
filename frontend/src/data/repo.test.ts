@@ -1,5 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { parseDbError } from './repo';
+import { parseDbError, signInError } from './repo';
+
+describe('signInError', () => {
+  it('keeps wrong credentials generic', () => {
+    expect(signInError('Invalid login credentials')).toMatchObject({ code: 'bad_login', message: 'Wrong username or password.' });
+  });
+  it('explains an unconfirmed login', () => {
+    expect(signInError('Email not confirmed').message).toBe('This login is not confirmed yet. In Supabase, confirm the user (or recreate it with "Auto Confirm User").');
+  });
+  it('shows configuration and network problems as they are', () => {
+    expect(signInError('Invalid API key')).toMatchObject({ code: 'network', message: 'Sign-in failed: Invalid API key. Check VITE_SUPABASE_ANON_KEY in Vercel.' });
+    expect(signInError('Failed to fetch')).toMatchObject({ code: 'network', message: 'Sign-in failed: Failed to fetch. Check VITE_SUPABASE_URL in Vercel and your connection.' });
+    expect(signInError('Something else')).toMatchObject({ code: 'network', message: 'Sign-in failed: Something else' });
+  });
+});
 
 describe('parseDbError', () => {
   it('reads overlaps, with who and when', () => {

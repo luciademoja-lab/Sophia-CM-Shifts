@@ -8,3 +8,6 @@ dist/
 backend/supabase/.branches
 backend/supabase/.temp
 .vercel
+
+.vercel
+.env*

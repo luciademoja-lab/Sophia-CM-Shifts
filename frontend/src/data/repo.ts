@@ -57,6 +57,16 @@ const CODES: Record<string, ErrorCode> = {
   RCM_NOT_FOUND: 'not_found', RCM_NOT_SIGNED_IN: 'not_signed_in',
 };
 
+/** Turns a Supabase Auth sign-in error into something the person can act on. */
+export function signInError(message: string): RepoError {
+  const m = (message || '').trim();
+  if (/invalid login credentials/i.test(m)) return new RepoError('bad_login', 'Wrong username or password.');
+  if (/email not confirmed/i.test(m)) return new RepoError('bad_login', 'This login is not confirmed yet. In Supabase, confirm the user (or recreate it with "Auto Confirm User").');
+  if (/api key/i.test(m)) return new RepoError('network', `Sign-in failed: ${m}. Check VITE_SUPABASE_ANON_KEY in Vercel.`);
+  if (/fetch|network/i.test(m)) return new RepoError('network', `Sign-in failed: ${m}. Check VITE_SUPABASE_URL in Vercel and your connection.`);
+  return new RepoError('network', `Sign-in failed: ${m}`);
+}
+
 /** Turns a Postgres error message from our functions into a RepoError. */
 export function parseDbError(message: string): RepoError {
   const m = /(RCM_[A-Z_]+)(?::\s*(.*))?/.exec(message || '');

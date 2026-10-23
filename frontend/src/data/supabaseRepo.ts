@@ -3,8 +3,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { normalizeCoverage } from '../lib/coverage';
 import type { LogEntry, Profile, Report, Shift } from '../lib/shifts';
-import { usernameToEmail } from '../../../backend/supabase/functions/_shared/username.ts';
-import { parseDbError, RepoError, type Repo, type Snapshot } from './repo';
+import { loginEmail } from '../../../backend/supabase/functions/_shared/username.ts';
+import { parseDbError, RepoError, signInError, type Repo, type Snapshot } from './repo';
 
 type ProfileRow = { id: string; username: string; full_name: string; role: 'admin' | 'rcm'; timezone: string | null; active: boolean };
 type ShiftRow = { id: string; owner: string; starts_at: string; ends_at: string; status: Shift['status']; covers_id: string | null };
@@ -49,8 +49,10 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
       return data.session?.user.id ?? null;
     },
     async signIn(username, password) {
-      const { error } = await sb.auth.signInWithPassword({ email: usernameToEmail(username), password });
-      if (error) throw new RepoError(/fetch|network/i.test(error.message) ? 'network' : 'bad_login', 'Wrong username or password.');
+      let error: { message: string } | null = null;
+      try { ({ error } = await sb.auth.signInWithPassword({ email: loginEmail(username), password })); }
+      catch (e) { error = { message: e instanceof Error ? e.message : String(e) }; }
+      if (error) throw signInError(error.message);
     },
     async signOut() { await sb.auth.signOut(); },
     onAuthChange(cb) {
