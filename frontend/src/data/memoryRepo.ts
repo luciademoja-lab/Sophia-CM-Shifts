@@ -1,9 +1,10 @@
 // In-memory repository with the same rules as the database functions.
 // Used for demo mode (no Supabase configured) and for end-to-end tests.
 import { isRequired, normalizeCoverage, validateCoverage, validateDaySlots, type Coverage, type CoverageDays, type Slot } from '../lib/coverage';
-import { isAvailable, type Availability } from '../lib/availability';
+import type { Availability } from '../lib/availability';
 import { canChange, findOverlap, historyFor, type LogAction, type LogEntry, type Profile, type Report, type Role, type Shift } from '../lib/shifts';
 import { isValidTimeZone, parseDateValue } from '../lib/time';
+import { inBookingWindow } from '../lib/team';
 import { canSubmitWeekly, reportWeek, validateReport, weeklyMinutes, type WeeklyReport } from '../lib/work';
 import { canSeeTask, taskTimeRows, validateTask, STATUSES, type Task, type TaskEvent } from '../lib/tasks';
 import { splitEvenly } from '../lib/contracts';
@@ -76,9 +77,6 @@ export function createMemoryRepo(seed: Seed): Repo {
     if (end - start > 24 * 3_600_000) fail('invalid', 'A shift can last at most 24 hours.');
   };
   const availabilityOf = (id: string): Availability => ({ tz: profiles.get(id)?.timezone ?? null, week: weeks.get(id) || {}, days: exceptions.get(id) || {} });
-  const rcmAvailable = (p: Profile, owner: string, start: number, end: number) => {
-    if (p.role === 'rcm' && !isAvailable(availabilityOf(owner), start, end)) fail('invalid', 'This is outside your availability. Add these hours to your availability first.');
-  };
   // Same rule as the database: inside required hours (or no target) and inside availability.
   const requiredAll = (start: number, end: number) => {
     const c = coverage ? normalizeCoverage(coverage) : null;
@@ -86,8 +84,12 @@ export function createMemoryRepo(seed: Seed): Repo {
     for (let t = start; t < end; t += 15 * 60_000) if (!isRequired(t + 1, c)) return false;
     return true;
   };
-  const statusFor = (p: Profile, owner: string, start: number, end: number): 'booked' | 'pending' =>
-    p.role === 'rcm' && !(isAvailable(availabilityOf(owner), start, end) && requiredAll(start, end)) ? 'pending' : 'booked';
+  // RCMs: only this week and next (Sunday opens the week after); outside the required hours it is a request.
+  const statusFor = (p: Profile, owner: string, start: number, end: number): 'booked' | 'pending' => {
+    if (p.role !== 'rcm') return 'booked';
+    if (!inBookingWindow(start, end, now(), profiles.get(owner)?.timezone || 'UTC')) fail('invalid', 'You can book shifts in this week and next week only (the week after opens on Sunday).');
+    return requiredAll(start, end) ? 'booked' : 'pending';
+  };
   const lockPast = (p: Profile, s: Shift, what: string) => {
     if (p.role === 'rcm' && !canChange(s, p, now())) fail('forbidden', `Shifts of past days can only be ${what} by an admin.`);
   };
@@ -231,7 +233,6 @@ export function createMemoryRepo(seed: Seed): Repo {
       if (!s) return fail('not_found', 'That shift no longer exists.');
       if (s.status !== 'open') fail('invalid', 'This shift does not need cover any more.');
       if (s.owner === taker) fail('invalid', 'Withdraw the cover request instead of taking your own shift.');
-      rcmAvailable(p, taker, s.start, s.end);
       free(s.start, s.end, [s.id]);
       s.status = 'covered';
       const nid = newId('s');

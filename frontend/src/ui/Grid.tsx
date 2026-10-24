@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { uncoveredRuns, type Coverage, type Interval } from '../lib/coverage';
-import { activeShifts, canChange, personColor, type Profile, type Shift } from '../lib/shifts';
+import { teamColors } from '../lib/team';
+import { activeShifts, canChange, type Profile, type Shift } from '../lib/shifts';
 import { DAYS, addDays, dayHours, minuteOfDay, wallSpan, dateOf, dayStartMs, hm, minLabel, rangeLabel, sameDate, tzLabel, zonedToUtc, type PlainDate } from '../lib/time';
 
 const ROW = 22, SLOTS = 96;
@@ -133,7 +134,7 @@ function DayColumn(p: Props & { date: PlainDate; act: Shift[]; booked: Shift[]; 
         const n = p.profiles[g.owner]?.fullName || 'Someone';
         return (
           <button key={'g' + g.owner + g.start} type="button" className="ghost"
-            style={{ top: (w.from / 15) * ROW, height: Math.max(((w.to - w.from) / 15) * ROW, ROW), ['--pc' as string]: personColor(p.profiles[g.owner]?.username || g.owner), ...(p.overlay.mode === 'lanes' && p.overlay.people.length ? { left: 3 + p.overlay.people.length * LANE } : {}) }}
+            style={{ top: (w.from / 15) * ROW, height: Math.max(((w.to - w.from) / 15) * ROW, ROW), ['--pc' as string]: teamColors(p.profiles)[g.owner] || '#6B7280', ...(p.overlay.mode === 'lanes' && p.overlay.people.length ? { left: 3 + p.overlay.people.length * LANE } : {}) }}
             aria-label={`Suggested: ${n}, ${rangeLabel(g.start, g.end, tz)}`}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); p.onGhost?.(g); }}
@@ -156,7 +157,7 @@ function ShiftBlock(p: Props & { s: Shift; d0: number; dEnd: number }) {
   const open = s.status === 'open', pending = s.status === 'pending';
   const name = personName(p.profiles, s.owner, p.me);
   const zone = personTz(p.profiles, s.owner, s.start);
-  const color = personColor(p.profiles[s.owner]?.username || s.owner);
+  const color = teamColors(p.profiles)[s.owner] || '#6B7280';
   return (
     <div
       className={'shift' + (open ? ' is-open' : '') + (pending ? ' is-pending' : '') + (p.me && s.owner === p.me.id ? ' is-mine' : '')}
@@ -171,8 +172,7 @@ function ShiftBlock(p: Props & { s: Shift; d0: number; dEnd: number }) {
       onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); p.onOpenShift(s); } }}
     >
       <span className="who">{name}</span>
-      {quarters >= 2 && <span className="tz">{zone}</span>}
-      {quarters >= 3 && <span className="when">{hm(s.start, tz)}–{hm(s.end, tz)}</span>}
+      {quarters >= 2 && <span className="when">{hm(s.start, tz)}–{hm(s.end, tz)}</span>}
       {open && quarters >= 4 && <span className="tag">Needs cover</span>}
       {pending && quarters >= 4 && <span className="tag">Request</span>}
       {canChange(s, p.me, p.now) && !open && (

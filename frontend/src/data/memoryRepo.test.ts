@@ -168,13 +168,15 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
     expect(await code(repo.setAvailability({ 1: [{ start: 480, end: 900 }, { start: 840, end: 1080 }] }))).toBe('invalid');
   });
 
-  it('lets RCMs book only inside their availability, and admins anywhere', async () => {
+  it('lets RCMs book outside their availability without approval, only this week and next', async () => {
     await as('nora');
     await repo.setMyTimezone('UTC');
-    await repo.setAvailability({ 1: [{ start: 8 * 60, end: 12 * 60 }] }); // t0 is a Monday
+    await repo.setAvailability({ 1: [{ start: 8 * 60, end: 12 * 60 }] }); // t0 is a Monday (next week)
     await repo.bookShift(t0 + 8 * H, t0 + 10 * H);
-    await repo.bookShift(t0 + 11 * H, t0 + 13 * H); // outside availability: becomes a request
-    expect((await snap()).shifts.map((s) => s.status)).toEqual(['booked', 'pending']);
+    await repo.bookShift(t0 + 11 * H, t0 + 13 * H); // outside availability: still booked
+    expect((await snap()).shifts.map((s) => s.status)).toEqual(['booked', 'booked']);
+    expect(await code(repo.bookShift(t0 + 7 * 24 * H, t0 + 7 * 24 * H + H))).toBe('invalid'); // the week after: not yet (Friday)
+    expect(await code(repo.bookShift(t0 - 14 * 24 * H, t0 - 14 * 24 * H + H))).toBe('invalid'); // last week
     await as('lucia');
     await repo.bookShift(t0 + 14 * H, t0 + 15 * H, ids.nora);
     expect(await code(repo.setAvailability({}, ids.max))).toBe('invalid');

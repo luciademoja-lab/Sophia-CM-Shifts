@@ -24,8 +24,9 @@ describe('reports and weekly reports', () => {
   afterAll(() => db.drop());
   beforeEach(() => {
     db.exec('super', 'delete from weekly_reports; delete from shift_reports; delete from shift_log; delete from shifts; delete from task_log; delete from tasks;');
-    shift = db.value<string>({ id: regina }, `select book_shift(${lastWeek(0, 8)}, ${lastWeek(0, 14)}, null)`);
-    shift2 = db.value<string>({ id: regina }, `select book_shift(${lastWeek(2, 8)}, ${lastWeek(2, 12)}, null)`);
+    // last week is outside the RCM booking window, so an admin books these shifts for Regina
+    shift = db.value<string>({ id: lucia }, `select book_shift(${lastWeek(0, 8)}, ${lastWeek(0, 14)}, '${regina}')`);
+    shift2 = db.value<string>({ id: lucia }, `select book_shift(${lastWeek(2, 8)}, ${lastWeek(2, 12)}, '${regina}')`);
     task = db.value<string>({ id: lucia }, `select create_task('Clean Zone B', '', 'normal', 120, array['${regina}']::uuid[])`);
   });
 
@@ -107,7 +108,7 @@ describe('reports and weekly reports', () => {
   });
 
   it('keeps future shifts out of reach', () => {
-    const later = db.value<string>({ id: regina }, `select book_shift(${nextWeek(0, 8)}, ${nextWeek(0, 10)}, null)`);
+    const later = db.value<string>({ id: lucia }, `select book_shift(${nextWeek(0, 8)}, ${nextWeek(0, 10)}, '${regina}')`);
     expect(failure(() => save(regina, 60, ['onboarding'], '', [], later))).toMatch(/RCM_INVALID/);
   });
 });

@@ -122,12 +122,12 @@ describe('time zone chosen by the RCM', () => {
     await page.getByText('Times shown in your time zone: Asia/Jakarta').waitFor();
   });
 
-  it('shows each RCM\'s time zone next to their name in the calendar', async () => {
+  it('shows shifts in the calendar without the RCM time zone', async () => {
     await signIn('lucia');
     await page.locator('.shift').first().waitFor();
     const blocks = await text('.shift');
-    expect(blocks.some((b) => b.includes('Regina Nemeth') && b.includes('Budapest'))).toBe(true);
-    expect(blocks.some((b) => b.includes('Kris Arévalo') && b.includes('Bogota'))).toBe(true);
+    expect(blocks.some((b) => b.includes('Regina Nemeth'))).toBe(true);
+    expect(blocks.some((b) => /Budapest|Bogota|Istanbul|UTC/.test(b))).toBe(false);
   });
 
   it('shows the zone in the hours table too', async () => {
@@ -474,22 +474,52 @@ describe('availability and assigning shifts', () => {
     await page.waitForFunction(() => document.querySelectorAll('.avail').length === 5); // usually Mon–Sat, Monday now off
   });
 
+  it('lets an RCM book outside their availability without approval', async () => {
+    await signIn('rana');
+    await page.getByRole('button', { name: 'Next week' }).click();
+    const p = await slot(3, 10); // 10:00 Istanbul: required, but before Rana's 15:00 start
+    await page.mouse.click(p.x, p.y);
+    await page.getByTestId('availability-warning').filter({ hasText: 'You can still book it.' }).waitFor();
+    expect(await page.getByTestId('request-warning').count()).toBe(0);
+    await page.getByRole('button', { name: 'Book shift' }).click();
+    await page.getByTestId('overlay').waitFor({ state: 'hidden' });
+    await page.locator('.shift', { hasText: '10:00–11:00' }).waitFor();
+    expect(await page.locator('.shift.is-pending').count()).toBe(0);
+  });
+
+  it('lets RCMs book only this week and next week', async () => {
+    await page.clock.install({ time: Date.parse('2026-10-23T12:00:00Z') }); // a Friday
+    await page.reload();
+    await signIn('rana');
+    await page.getByRole('button', { name: 'Next week' }).click();
+    await page.getByRole('button', { name: 'Next week' }).click();
+    const p = await slot(2, 16);
+    await page.mouse.click(p.x, p.y);
+    await page.getByTestId('window-warning').waitFor();
+    expect(await page.getByRole('button', { name: /Book shift|Send request/ }).isDisabled()).toBe(true);
+  });
+
+  it('flashes a warning when an RCM is below their share of the required hours, and admins see who', async () => {
+    await signIn('rana');
+    expect(await page.getByTestId('shortfall').innerText()).toMatch(/You have booked 5h of your \d+h( \d+m)? this week/);
+    expect(await page.locator('#hours thead').innerText()).toContain('TARGET');
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('lucia');
+    expect(await page.getByTestId('shortfall').innerText()).toContain('Rana Barakli 5h');
+  });
+
   async function requestAsRana() {
     await signIn('rana');
     await page.getByRole('button', { name: 'Next week' }).click();
-    const { x, y } = await slot(3, 9); // 09:00 Istanbul, before Rana's 15:00 start
-    await page.mouse.move(x, y);
-    await page.mouse.down();
-    await page.mouse.move(x, y + R * 4, { steps: 2 });
-    await page.mouse.up();
-    await page.getByTestId('availability-warning').waitFor();
+    const p = await slot(3, 15); // 15:00 Istanbul = 13:00 Rome next week: the gap in the required hours
+    await page.mouse.click(p.x, p.y);
     await page.getByTestId('request-warning').waitFor();
     await page.getByRole('button', { name: 'Send request' }).click();
     await page.getByTestId('overlay').waitFor({ state: 'hidden' });
     await page.locator('.shift.is-pending').waitFor();
   }
 
-  it('turns an RCM booking outside their availability into a request they cannot report on yet', async () => {
+  it('turns an RCM booking outside the required hours into a request they cannot report on yet', async () => {
     await requestAsRana();
     await page.locator('.shift.is-pending').click();
     await page.getByTestId('pending-note').waitFor();
@@ -611,7 +641,7 @@ describe('live updates and time zones', () => {
   it('clears the notification dot once the panel is opened, even with requests still waiting', async () => {
     await signIn('rana');
     await page.getByRole('button', { name: 'Next week' }).click();
-    const p = await slot(3, 9); // 09:00 Istanbul: outside Rana's hours
+    const p = await slot(3, 15); // 15:00 Istanbul: outside the required hours
     await page.mouse.click(p.x, p.y);
     await page.getByRole('button', { name: 'Send request' }).click();
     await page.getByTestId('overlay').waitFor({ state: 'hidden' });

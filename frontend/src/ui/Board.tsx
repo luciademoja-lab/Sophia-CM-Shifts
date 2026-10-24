@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Repo, Snapshot } from '../data/repo';
 import { hasTarget, uncoveredRuns } from '../lib/coverage';
-import { activeShifts, canWrite, findOverlap, onDutyAt, openInRange, personColor, toCsv, type Profile, type Shift } from '../lib/shifts';
+import { activeShifts, canWrite, findOverlap, onDutyAt, openInRange , toCsv, type Profile, type Shift } from '../lib/shifts';
 import { availabilityIntervals, emptyAvailability } from '../lib/availability';
+import { teamColors, weeklyShare, requiredMinutesIn, shareRcms } from '../lib/team';
 import { addDays, dayStartMs, dur, isoWeek, rangeLabel, shortDate, type PlainDate } from '../lib/time';
 import { CoverageEditor } from './CoverageEditor';
 import { errorText } from './errors';
@@ -59,13 +60,14 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
   // Who can hold shifts, and whose availability the board shows.
   const rcms = Object.values(profiles).filter((p) => p.active && p.role === 'rcm').sort((a, b) => a.fullName.localeCompare(b.fullName));
   const fixedToSelf = me?.role === 'rcm';
+  const colors = teamColors(profiles);
   const [view, setView] = useState<string>(() => (fixedToSelf && me ? me.id : 'team'));
   const shown = fixedToSelf ? me!.id : view;
   const intervalsOf = (id: string) => availabilityIntervals(availability[id] || emptyAvailability(profiles[id]?.timezone ?? null), w0, w1);
   const overlay: Overlay = shown === 'team'
-    ? { mode: 'lanes', people: rcms.map((p) => ({ id: p.id, name: p.fullName, color: personColor(p.username), intervals: intervalsOf(p.id) })) }
+    ? { mode: 'lanes', people: rcms.map((p) => ({ id: p.id, name: p.fullName, color: colors[p.id], intervals: intervalsOf(p.id) })) }
     : profiles[shown]
-      ? { mode: 'single', people: [{ id: shown, name: profiles[shown].fullName, color: personColor(profiles[shown].username), intervals: intervalsOf(shown) }] }
+      ? { mode: 'single', people: [{ id: shown, name: profiles[shown].fullName, color: colors[shown], intervals: intervalsOf(shown) }] }
       : { mode: 'single', people: [] };
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(mon, i));
   // Admins: balanced suggestion for the required hours still open this week (from now on).
@@ -83,6 +85,14 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
   async function assignAll() {
     for (const g of plan?.suggestions || []) await assign(g);
   }
+  // each RCM's share of the week's required hours, and who is still below it
+  const requiredWeek = coverage && hasTarget(coverage) ? availabilityIntervals({ tz: coverage.tz, week: coverage.days, days: {} }, w0, w1) : [];
+  const share = weeklyShare(requiredMinutesIn(requiredWeek), profiles);
+  const takenMinutes = (id: string) => shifts.filter((s) => s.owner === id && (s.status === 'booked' || s.status === 'pending' || s.status === 'open'))
+    .reduce((m, s) => m + Math.max(0, Math.min(s.end, w1) - Math.max(s.start, w0)) / 60_000, 0);
+  const shortOf = share ? shareRcms(profiles).map((p) => ({ p, taken: takenMinutes(p.id) })).filter((x) => x.taken < share) : [];
+  const myShort = isRcm && me ? shortOf.find((x) => x.p.id === me.id) : undefined;
+
   const unread = isAdmin ? unreadCount(log, requests, profiles, me, notificationsSeenAt, weeklyReports, taskLog) : 0;
   const weekKey = dateValue(mon);
   const myWeekly = isRcm ? weeklyReports.find((w) => w.owner === me!.id && w.week === weekKey) : undefined;
@@ -163,6 +173,17 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
         </nav>
       )}
 
+      {page === 'schedule' && myShort && (
+        <div className="shortfall" role="alert" data-testid="shortfall">
+          <b>You have booked {dur(myShort.taken)} of your {dur(share)} this week.</b> Book {dur(share - myShort.taken)} more to reach your share of the required hours.
+        </div>
+      )}
+      {page === 'schedule' && isAdmin && shortOf.length > 0 && (
+        <div className="shortfall" role="alert" data-testid="shortfall">
+          <b>Below their share this week ({dur(share)} each):</b> {shortOf.map((x) => `${x.p.fullName} ${dur(x.taken)}`).join(' · ')}
+        </div>
+      )}
+
       {page === 'tasks' && me && <TasksPage repo={repo} me={me} profiles={profiles} tasks={tasks} taskTime={taskTime} tz={tz} />}
       {page === 'dashboard' && isAdmin && <Dashboard profiles={profiles} tasks={tasks} taskTime={taskTime} weeklyReports={weeklyReports} mon={mon} w0={w0} w1={w1} />}
       {page === 'role' && <RolePage />}
@@ -182,19 +203,19 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
             {rcms.map((p) => <option key={p.id} value={p.id}>{p.fullName}</option>)}
           </select>
           {shown === 'team' && (
-            <span className="people">{rcms.map((p) => <span key={p.id} className="person"><span className="dot" style={{ background: personColor(p.username) }} />{p.fullName}</span>)}</span>
+            <span className="people">{rcms.map((p) => <span key={p.id} className="person"><span className="dot" style={{ background: colors[p.id] }} />{p.fullName}</span>)}</span>
           )}
         </div>
       )}
 
       <div className="legend" data-tour="legend">
         <span><span className="sw avail-sw" />{shown === 'team' ? 'Availability (thin coloured lanes, one per RCM)' : fixedToSelf ? 'Your availability' : `${profiles[shown]?.fullName ?? ''}'s availability`}</span>
-        <span><span className="sw mine" />Shift</span>
+        <span><span className="sw mine" />Shift (in the RCM’s colour)</span>
         <span><span className="sw open" />Needs cover</span>
         <span><span className="sw uncovered" />Required but not covered</span>
         <span><span className="sw pending-sw" />Request (waiting for approval)</span>
         {ghosts.length > 0 && <span><span className="sw ghost-sw" />Suggested shift (click to assign)</span>}
-        {canBook && <span>Drag on the grid (or tap) to book. Click a shift to change it. Each name shows that RCM's own time zone.</span>}
+        {canBook && <span>Drag on the grid (or tap) to book. Click a shift to change it.</span>}
       </div>
 
       {coverage && coverage.tz !== tz && clockChanges(mon, tz, coverage.tz).map((c) => (
@@ -215,10 +236,10 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
         onGhost={(g) => setDialog({ kind: 'shift', ctx: { newStart: g.start, newMinutes: Math.round((g.end - g.start) / 60000), owner: g.owner } })}
       />
 
-      <section className="panels">
+      <section className={'panels' + (isAdmin ? ' admin' : '')}>
         {plan && <PlanPanel plan={plan} profiles={profiles} tz={tz} showGhosts={showGhosts} onToggleGhosts={() => setShowGhosts((v) => !v)} onAssign={assign} onAssignAll={assignAll} />}
         <HoursPanel shifts={shifts} reports={reports} availability={availability} profiles={profiles} me={me} from={w0} to={w1} now={now} tz={tz} weeklyReports={weeklyReports}
-          onExport={exportCsv} onReport={(s) => setDialog({ kind: 'report', shift: s })} onDeleteReport={(s) => repo.deleteReport(s.id)} />
+          share={share} onExport={exportCsv} onReport={(s) => setDialog({ kind: 'report', shift: s })} onDeleteReport={(s) => repo.deleteReport(s.id)} />
         {!isRcm && <CoveragePanel coverage={coverage} isAdmin={isAdmin} onEdit={() => setDialog({ kind: 'coverage' })} />}
         {!isRcm && <HistoryPanel log={log} profiles={profiles} tz={tz} shifts={shifts} reports={reports} me={me} now={now} onReport={(s) => setDialog({ kind: 'report', shift: s })} onDelete={isAdmin ? (id) => repo.deleteLog(id) : undefined} />}
       </section>

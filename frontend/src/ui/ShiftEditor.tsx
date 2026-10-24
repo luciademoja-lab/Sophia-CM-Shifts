@@ -8,6 +8,7 @@ import { Field, Modal } from './Modal';
 import { reportSummary } from './ReportEditor';
 import { emptyAvailability, isAvailable, type Availability } from '../lib/availability';
 import { isRequiredRange, type Coverage } from '../lib/coverage';
+import { inBookingWindow } from '../lib/team';
 
 export type EditorCtx = { shift: Shift } | { newStart: number; newMinutes: number; owner?: string };
 
@@ -60,10 +61,12 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, avai
   const target = owner;
   const range = isOpen ? s : r;
   const outside = !!range && !availableFor(target, range);
-  // RCMs booking outside the required hours or their availability send a request instead.
-  const asRequest = me.role === 'rcm' && !isOpen && !!r && (!availableFor(me.id, r) || !isRequiredRange(coverage, r.start, r.end));
+  // RCMs booking outside the required hours send a request; outside their availability is fine.
+  const asRequest = me.role === 'rcm' && !isOpen && !!r && !isRequiredRange(coverage, r.start, r.end);
+  // RCMs book this week and next only (Sunday opens the week after)
+  const outOfWindow = me.role === 'rcm' && editable && !!r && !inBookingWindow(r.start, r.end, now, me.timezone || 'UTC');
   const outsideMsg = target === me.id
-    ? 'This is outside your availability.'
+    ? 'This is outside your availability. You can still book it.'
     : `Outside ${profiles[target]?.fullName ?? 'this person'}'s availability. You can still assign it.`;
   const dot = (ok: boolean) => (ok ? '🟢' : '🔴');
 
@@ -126,15 +129,16 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, avai
           {canReport(s, me, now) && <div><button className="btn small" type="button" onClick={() => onReport(s)}>{reports[s.id] ? 'Edit report' : 'Add report'}</button></div>}
         </div>
       )}
-      {!isViewer && (editable || isOpen) && outside && <p className={isAdmin ? 'warnline' : 'err'} data-testid="availability-warning">{outsideMsg}</p>}
-      {asRequest && editable && <p className="warnline" data-testid="request-warning">{outside ? 'Outside your availability' : 'Outside the required hours'}: this will be sent to the admins as a request. You can confirm it and report on it once an admin approves it.</p>}
+      {!isViewer && (editable || isOpen) && outside && <p className="note" data-testid="availability-warning">{outsideMsg}</p>}
+      {asRequest && editable && !outOfWindow && <p className="warnline" data-testid="request-warning">Outside the required hours: this will be sent to the admins as a request. You can confirm it and report on it once an admin approves it.</p>}
+      {outOfWindow && <p className="err" data-testid="window-warning">You can book shifts in this week and next week only. The week after opens on Sunday.</p>}
       {error && <p className="err" role="alert">{error}</p>}
 
       <div className="actions">
         {isNew && (<>
           <span className="spacer" />
           <button className="btn" type="button" onClick={onClose}>Cancel</button>
-          <button className="btn primary" type="button" disabled={busy} onClick={() => checkFree(r, []) && run(() => repo.bookShift(r!.start, r!.end, owner === me.id ? null : owner))}>{asRequest ? 'Send request' : 'Book shift'}</button>
+          <button className="btn primary" type="button" disabled={busy || outOfWindow} onClick={() => checkFree(r, []) && run(() => repo.bookShift(r!.start, r!.end, owner === me.id ? null : owner))}>{asRequest ? 'Send request' : 'Book shift'}</button>
         </>)}
 
         {isOpen && !isViewer && (<>

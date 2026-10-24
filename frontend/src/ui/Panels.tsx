@@ -1,6 +1,7 @@
 import { coverageText, hasTarget, type Coverage, type Weekday } from '../lib/coverage';
 import { useState } from 'react';
-import { canReport, historyFor, historyText, latestEntryPerShift, personColor, weekHours, type LogEntry, type Profile, type Report, type Shift } from '../lib/shifts';
+import { shareRcms, teamColors } from '../lib/team';
+import { canReport, historyFor, historyText, latestEntryPerShift , weekHours, type LogEntry, type Profile, type Report, type Shift } from '../lib/shifts';
 import { DAYS_LONG, dayLabel, dur, hm, rangeLabel, tzLabel } from '../lib/time';
 import type { WeeklyReport } from '../lib/work';
 import { availableMinutes, type Availability } from '../lib/availability';
@@ -13,9 +14,12 @@ type HoursProps = {
   shifts: Shift[]; reports: Record<string, Report>; availability: Record<string, Availability>; profiles: Record<string, Profile>;
   me: Profile | null; from: number; to: number; now: number; tz: string; weeklyReports: WeeklyReport[];
   onExport: () => void; onReport: (s: Shift) => void; onDeleteReport: (s: Shift) => Promise<void>;
+  /** each RCM's share of the week's required hours, in minutes */
+  share: number;
 };
 
-export function HoursPanel({ shifts, reports, availability, profiles, me, from, to, now, tz, weeklyReports, onExport, onReport, onDeleteReport }: HoursProps) {
+export function HoursPanel({ shifts, reports, availability, profiles, me, from, to, now, tz, weeklyReports, onExport, onReport, onDeleteReport, share }: HoursProps) {
+  const sharers = new Set(shareRcms(profiles).map((p) => p.id));
   const own = me?.role === 'rcm';
   const hours = weekHours(shifts, from, to, reports);
   const offered = Object.fromEntries(Object.entries(availability).map(([id, a]) => [id, availableMinutes(a, from, to)]));
@@ -31,16 +35,17 @@ export function HoursPanel({ shifts, reports, availability, profiles, me, from, 
       <div id="hours">
         {!rows.length ? <p className="empty">{own ? 'No availability or shifts this week yet.' : 'Nobody has booked availability this week yet.'}</p> : (<>
           <table>
-            <thead><tr><th>Person</th><th className="num">Offered</th><th className="num">Shifts</th><th className="num">Covering</th><th className="num">Needs cover</th><th className="num">Worked</th></tr></thead>
+            <thead><tr><th>Person</th><th className="num">Target</th><th className="num">Offered</th><th className="num">Shifts</th><th className="num">Covering</th><th className="num">Needs cover</th><th className="num">Worked</th></tr></thead>
             <tbody>
               {rows.map((h) => {
                 const p = profiles[h.owner];
                 return (
                   <tr key={h.owner}>
                     <td>
-                      <div className="person"><span className="dot" style={{ background: personColor(p?.username || h.owner) }} /><span>{personName(profiles, h.owner, me)}</span></div>
+                      <div className="person"><span className="dot" style={{ background: teamColors(profiles)[h.owner] }} /><span>{personName(profiles, h.owner, me)}</span></div>
                       <span className="sub">{p?.timezone ? tzLabel(p.timezone, from) : 'time zone not set'}</span>
                     </td>
+                    <td className="num">{share && sharers.has(h.owner) ? dur(share) : '–'}</td>
                     <td className="num">{offered[h.owner] ? dur(offered[h.owner]) : '–'}</td>
                     <td className="num">{h.booked ? dur(h.booked / 60000) : '–'}</td>
                     <td className="num">{h.covering ? dur(h.covering / 60000) : '–'}</td>
@@ -51,7 +56,7 @@ export function HoursPanel({ shifts, reports, availability, profiles, me, from, 
               })}
             </tbody>
           </table>
-          <p className="note">Offered is the availability {own ? 'you' : 'each RCM'} gave for this week. Shifts are the hours booked or assigned. Worked is what {own ? 'you' : 'RCMs'} logged in shift reports.</p>
+          <p className="note">Target is each RCM’s share of the required hours (required hours ÷ number of RCMs). Offered is the availability {own ? 'you' : 'each RCM'} gave for this week. Shifts are the hours booked or assigned. Worked is what {own ? 'you' : 'RCMs'} logged in shift reports.</p>
         </>)}
         {own && (
           <div className="myshifts">
@@ -206,7 +211,7 @@ export function PlanPanel({ plan, profiles, tz, showGhosts, onToggleGhosts, onAs
           <tbody>
             {plan.perPerson.map((p) => (
               <tr key={p.id}>
-                <td><div className="person"><span className="dot" style={{ background: personColor(profiles[p.id]?.username || p.id) }} />{name(p.id)}</div></td>
+                <td><div className="person"><span className="dot" style={{ background: teamColors(profiles)[p.id] }} />{name(p.id)}</div></td>
                 <td className="num">{p.offeredMinutes ? dur(p.offeredMinutes) : '–'}</td>
                 <td className="num">{p.bookedMinutes ? dur(p.bookedMinutes) : '–'}</td>
                 <td className="num">{p.targetMinutes ? '+' + dur(p.targetMinutes) : '–'}</td>
@@ -219,7 +224,7 @@ export function PlanPanel({ plan, profiles, tz, showGhosts, onToggleGhosts, onAs
           <ul aria-label="Suggested shifts">
             {plan.suggestions.map((s) => (
               <li key={s.owner + s.start}>
-                <span className="dot" style={{ background: personColor(profiles[s.owner]?.username || s.owner) }} />
+                <span className="dot" style={{ background: teamColors(profiles)[s.owner] }} />
                 <span>{name(s.owner)} · <span className="mono">{dayLabel(s.start, tz)} {hm(s.start, tz)}–{hm(s.end, tz)}</span> · {dur((s.end - s.start) / 60000)}</span>
                 <button className="btn small" type="button" disabled={busy} onClick={() => go(() => onAssign(s))}>Assign</button>
               </li>

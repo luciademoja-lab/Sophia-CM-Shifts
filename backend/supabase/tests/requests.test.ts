@@ -83,7 +83,7 @@ describe('requests, approvals and history by role', () => {
 
   describe('past and started shifts', () => {
     it('hides "ask for cover" once a shift has started', () => {
-      const id = book(admin, day(0, 0), day(1, 0), regina);
+      const id = book(admin, day(0, 0), day(0, 20), regina); // started today (and under 24 h on clock-change days)
       expect(failure(() => db.exec({ id: regina }, `select ask_cover('${id}')`))).toMatch(/RCM_INVALID/);
     });
     it('stops RCMs from changing or deleting a shift of a past day, but not admins', () => {
