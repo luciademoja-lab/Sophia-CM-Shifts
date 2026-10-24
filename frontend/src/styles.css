@@ -64,7 +64,7 @@ header.top{display:flex; flex-wrap:wrap; gap:12px 20px; align-items:flex-end; ju
 .legend{display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12px; color:var(--muted); align-items:center}
 .sw{display:inline-block; width:14px; height:10px; border-radius:2px; vertical-align:-1px; margin-right:5px}
 .sw.mine{background:color-mix(in srgb, var(--accent) 24%, var(--surface)); border-left:3px solid var(--accent)}
-.sw.open{background:repeating-linear-gradient(45deg,var(--warn-soft) 0 3px,transparent 3px 6px); border:1px dashed var(--warn)}
+.sw.open{background:color-mix(in srgb, var(--accent) 14%, var(--surface)); border-left:3px solid var(--warn)}
 .sw.uncovered{background:rgba(212,42,42,.30)}
 
 .boardwrap{background:var(--surface); border:1px solid var(--line); border-radius:10px; overflow:auto; aspect-ratio:1 / 1; max-height:92vh; min-height:420px; position:relative}
@@ -90,13 +90,13 @@ header.top{display:flex; flex-wrap:wrap; gap:12px 20px; align-items:flex-end; ju
 .shift .tz{font-size:10px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .shift .when{font-family:var(--f-mono); font-size:10px; color:var(--muted); white-space:nowrap}
 .shift.is-mine{box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--pc) 60%, transparent)}
-.shift.is-open{background:repeating-linear-gradient(45deg,var(--warn-soft) 0 6px,transparent 6px 12px), var(--surface); border:1px dashed var(--warn); border-left:3px solid var(--warn)}
+.shift.is-open{border-left:4px solid var(--warn)}
 .shift.is-open .tag{color:var(--warn); font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:.06em}
 .shift .x{position:absolute; top:1px; right:2px; border:0; background:transparent; color:var(--muted); font-size:14px; line-height:1; padding:1px 4px; border-radius:3px; opacity:0}
 .shift:hover .x, .shift:focus-within .x{opacity:1}
 .shift .x:hover, .shift .x:focus-visible{color:var(--danger); background:var(--surface); opacity:1}
 @media (hover:none){ .shift .x{opacity:1} }
-.shift.is-pending{background:repeating-linear-gradient(-45deg,color-mix(in srgb, var(--pc) 14%, transparent) 0 5px,transparent 5px 10px), var(--surface); border:1px dashed var(--pc); border-left:3px dashed var(--pc); opacity:.9}
+.shift.is-pending{border-left:4px solid var(--pc)}
 .shift.is-pending .tag{font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted)}
 .ghost{position:absolute; left:3px; right:3px; z-index:2; border:1.5px dashed var(--pc); border-radius:4px; background:color-mix(in srgb, var(--pc) 8%, transparent); color:var(--ink); font:inherit; font-size:11px; text-align:left; padding:1px 5px; cursor:pointer; overflow:hidden}
 .ghost:hover, .ghost:focus-visible{background:color-mix(in srgb, var(--pc) 22%, transparent)}
@@ -187,7 +187,7 @@ textarea:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 .people{display:flex; flex-wrap:wrap; gap:4px 12px; font-size:12px; color:var(--muted)}
 .daytoggle{display:flex; gap:4px; align-items:center; font-weight:400; font-size:12px; color:var(--muted); margin-top:4px}
 .warnline{color:var(--warn); font-size:13px; margin:0}
-.sw.pending-sw{background:repeating-linear-gradient(-45deg,var(--line) 0 3px,transparent 3px 6px); border:1px dashed var(--muted)}
+.sw.pending-sw{background:color-mix(in srgb, var(--accent) 14%, var(--surface)); border-left:3px solid var(--accent)}
 .sw.ghost-sw{background:transparent; border:1.5px dashed var(--accent)}
 .plan .row{display:flex; gap:8px; flex-wrap:wrap}
 .plan .bad{color:var(--danger)}
@@ -312,3 +312,15 @@ table.mini{font-size:13px}
 .panels.admin{grid-template-columns:3fr 7fr}
 .panels.admin > .panel.wide{grid-column:1 / -1}
 @media (max-width:800px){ .panels.admin{grid-template-columns:1fr} }
+
+/* slots: solid colours only. Booked by the rules = stronger tint of the RCM colour;
+   not confirmed yet (request) or waiting for cover = light tint. */
+.shift{background:color-mix(in srgb, var(--pc) 55%, var(--surface))}
+.shift:hover{background:color-mix(in srgb, var(--pc) 68%, var(--surface))}
+.shift.is-open, .shift.is-pending{background:color-mix(in srgb, var(--pc) 16%, var(--surface))}
+.shift.is-open:hover, .shift.is-pending:hover{background:color-mix(in srgb, var(--pc) 26%, var(--surface))}
+.sw.mine{background:color-mix(in srgb, var(--accent) 55%, var(--surface)); border-left:3px solid var(--accent)}
+/* page body: 80% of the window; the calendar takes the body width */
+.wrap{max-width:none; width:80vw}
+@media (max-width:900px){ .wrap{width:auto} }
+.boardwrap{width:100%; margin-left:0}
