@@ -8,6 +8,7 @@ import type { ReportInput, WeeklyReport } from '../lib/work';
 import type { ContractLine } from '../lib/contracts';
 import type { ShiftSession } from '../lib/session';
 import type { TodoTemplate } from '../lib/todos';
+import type { CoverageVersion } from '../lib/history';
 import type { Task, TaskEvent, TaskInput, TaskStatus, TaskTimeRow } from '../lib/tasks';
 
 export type Snapshot = {
@@ -40,6 +41,8 @@ export type Snapshot = {
   todoTemplates: TodoTemplate[];
 };
 export type SessionTodo = { sessionId: string; templateId: string; item: number };
+/** For the dashboard chart: every version of the required coverage, and the minutes worked per shift in a range. */
+export type HoursHistory = { versions: CoverageVersion[]; worked: Array<{ start: number; minutes: number }> };
 
 export type NewLogin = { username: string; fullName: string; password: string; role: Role };
 
@@ -86,6 +89,8 @@ export interface Repo {
   /** admins; id '' creates a new template */
   saveTodoTemplate(t: TodoTemplate): Promise<string>;
   deleteTodoTemplate(id: string): Promise<void>;
+  /** admins and viewers: required vs worked hours over [from, to) */
+  loadHoursHistory(from: number, to: number): Promise<HoursHistory>;
   approveShift(id: string): Promise<void>;
   rejectShift(id: string): Promise<void>;
   deleteLog(id: string): Promise<void>;

@@ -608,7 +608,7 @@ describe('history, plan and past days', () => {
     await signIn('lucia');
     await page.getByRole('button', { name: 'Next week' }).click();
     const plan = page.locator('#plan');
-    await plan.getByText('Required', { exact: true }).waitFor();
+    await plan.getByTestId('plan-required').waitFor();
     const items = plan.getByRole('list', { name: 'Suggested shifts' }).locator('li');
     await items.first().waitFor();
     expect(await page.locator('.ghost').count()).toBeGreaterThan(0);
@@ -616,6 +616,16 @@ describe('history, plan and past days', () => {
     await items.first().getByRole('button', { name: 'Assign' }).click();
     await page.waitForFunction((k) => document.querySelectorAll('#plan li').length !== k, n);
     expect(await page.locator('#plan').count()).toBe(1);
+  });
+
+  it('shows the same weekly required hours in the plan as the calendar, with past hours apart', async () => {
+    await page.clock.install({ time: Date.parse('2026-10-24T17:27:00Z') }); // Saturday 19:27 in Rome
+    await page.reload();
+    await signIn('lucia');
+    const plan = page.locator('#plan');
+    expect(await plan.getByTestId('plan-required').innerText()).toBe('112h'); // 16h a day in the demo, whole week
+    expect(await plan.innerText()).toContain('NOT COVERED, ALREADY PAST');
+    expect(await plan.innerText()).toContain('STILL OPEN (FROM NOW)');
   });
 
   it('opens a suggestion from the grid with the SCM already picked', async () => {
@@ -674,6 +684,55 @@ describe('live updates and time zones', () => {
     await signIn('lucia'); // Rome: Sunday 25 Oct has 25 hours
     await page.locator('.dayhead .dst', { hasText: 'clocks −1h' }).waitFor();
     expect(await page.getByTestId('dst-note').count()).toBe(0);
+  });
+});
+
+describe('light and dark theme', () => {
+  it('switches to dark with the button, remembers it, and keeps the calendar white with purple uncovered hours', async () => {
+    await signIn('lucia');
+    const html = page.locator('html');
+    expect(await html.getAttribute('data-theme')).toBe('light');
+    await page.getByRole('button', { name: 'Switch to dark mode' }).click();
+    expect(await html.getAttribute('data-theme')).toBe('dark');
+    await page.reload();
+    expect(await html.getAttribute('data-theme')).toBe('dark'); // remembered on this browser, already on the sign-in page
+    await signIn('lucia'); // demo data lives in the tab only
+    await page.locator('.gap').first().waitFor();
+    const look = await page.evaluate(() => {
+      const css = (el: Element | null, p: string) => (el ? getComputedStyle(el).getPropertyValue(p).trim() : '');
+      return { body: css(document.body, 'background-color'), board: css(document.querySelector('.boardwrap'), 'background-color'), gap: css(document.querySelector('.gap'), 'background-color') };
+    });
+    expect(look.body).toBe('rgb(15, 11, 22)');
+    expect(look.board).toBe('rgb(255, 255, 255)');
+    expect(look.gap).toBe('rgba(126, 63, 209, 0.32)');
+    await page.getByRole('button', { name: 'Switch to light mode' }).click();
+    expect(await html.getAttribute('data-theme')).toBe('light');
+  });
+});
+
+describe('required vs worked hours chart', () => {
+  it('shows required and worked hours per week for 4 weeks, 6 months or 12 months', async () => {
+    await page.clock.install({ time: Date.parse('2026-10-24T17:00:00Z') }); // Saturday of week 43
+    await page.reload();
+    await signIn('regina');
+    await page.getByTestId('my-reports').getByRole('button', { name: 'Add report' }).first().click();
+    await page.getByLabel('Hours worked').selectOption('5');
+    await page.getByLabel('Community management').check();
+    await page.getByRole('button', { name: 'Save report' }).click();
+    await page.getByTestId('overlay').waitFor({ state: 'hidden' });
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await signIn('lucia');
+    await page.getByRole('button', { name: 'Dashboard' }).click();
+    const chart = page.getByTestId('hours-chart');
+    await chart.getByTestId('hours-summary').filter({ hasText: '5h worked of 448h required' }).waitFor(); // 4 weeks × 112h
+    expect(await chart.locator('svg text', { hasText: /^W\d+$/ }).allTextContents()).toEqual(['W40', 'W41', 'W42', 'W43']);
+    await chart.getByRole('button', { name: 'Show table' }).click();
+    expect(await chart.locator('tbody tr').last().innerText()).toMatch(/W43.*112h.*5h.*4%/s);
+    await chart.getByRole('button', { name: '6 months' }).click();
+    await chart.locator('tbody tr').nth(25).waitFor();
+    expect(await chart.locator('tbody tr').count()).toBe(26);
+    await chart.getByRole('button', { name: '12 months' }).click();
+    await chart.locator('tbody tr').nth(51).waitFor();
   });
 });
 

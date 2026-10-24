@@ -405,3 +405,26 @@ describe('memoryRepo: Start/End shift and to-do templates', () => {
     expect(await code(repo.toggleSessionTodo(s, t, 0, true))).toBe('forbidden');
   });
 });
+
+describe('memoryRepo: hours history for the dashboard', () => {
+  it('keeps each version of the required coverage and returns worked minutes (report, else clocked time)', async () => {
+    let clock = Date.parse('2026-10-26T10:00:00Z');
+    const repo = createMemoryRepo({ users, now: () => clock, coverage: { tz: 'Europe/Rome', days: { 1: [{ start: 420, end: 780 }] } } });
+    await repo.signIn('lucia', 'demo2026pass');
+    const ids: Record<string, string> = {};
+    for (const p of Object.values((await repo.load(clock - 24 * H, clock + 24 * H)).profiles)) ids[p.username] = p.id;
+    await repo.setCoverage('Europe/Rome', { 1: [{ start: 480, end: 720 }] });
+    const a = await repo.bookShift(clock - 2 * H, clock - H, ids.regina);
+    const b = await repo.bookShift(clock - H, clock + H, ids.regina);
+    await repo.saveReport(a, { workedMinutes: 50, notes: '', workTypes: ['community'], posters: '', tasks: [] });
+    await repo.signOut(); await repo.signIn('regina', 'demo2026pass');
+    const s = await repo.startShift(b);
+    clock += 30 * 60_000;
+    await repo.endShift(s);
+    expect(await code(repo.loadHoursHistory(0, clock + H))).toBe('forbidden');
+    await repo.signOut(); await repo.signIn('max', 'demo2026pass');
+    const h = await repo.loadHoursHistory(clock - 5 * H, clock + 5 * H);
+    expect(h.versions.length).toBe(2);
+    expect(h.worked.map((w) => w.minutes)).toEqual([50, 30]);
+  });
+});

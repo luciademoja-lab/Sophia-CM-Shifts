@@ -11,6 +11,7 @@ import { splitEvenly } from '../lib/contracts';
 import { CHECK_EVERY, sessionState, type ShiftSession } from '../lib/session';
 import { templateConflict, validateTemplate, type TodoTemplate } from '../lib/todos';
 import type { SessionTodo } from './repo';
+import { workedMinutesByShift, type CoverageVersion } from '../lib/history';
 import { normalizeUsername, validatePassword, validateUsername } from '../../../backend/supabase/functions/_shared/username.ts';
 import { RepoError, type NewLogin, type Repo, type Snapshot } from './repo';
 
@@ -49,6 +50,7 @@ export function createMemoryRepo(seed: Seed): Repo {
   const weeks = new Map<string, CoverageDays>();
   const exceptions = new Map<string, Record<string, Slot[]>>();
   let coverage: Coverage | null = seed.coverage ?? null;
+  const coverageVersions: CoverageVersion[] = coverage ? [{ validFrom: Date.parse('2000-01-01T00:00:00Z'), tz: coverage.tz, days: structuredClone(coverage.days) }] : [];
   let me: string | null = null;
   const listeners = new Set<() => void>();
   const authListeners = new Set<() => void>();
@@ -261,7 +263,8 @@ export function createMemoryRepo(seed: Seed): Repo {
       if (!isValidTimeZone(tz)) fail('invalid', `Unknown time zone ${tz}.`);
       const err = validateCoverage(days);
       if (err) fail('invalid', err);
-      coverage = normalizeCoverage({ tz, days }); changed();
+      coverage = normalizeCoverage({ tz, days });
+      coverageVersions.push({ validFrom: now(), tz: coverage!.tz, days: structuredClone(coverage!.days) }); changed();
     },
 
     async saveReport(shiftId, input) {
@@ -422,6 +425,13 @@ export function createMemoryRepo(seed: Seed): Repo {
       } else { clean.id = newId('tt'); templates.push(clean); }
       changed();
       return clean.id;
+    },
+    async loadHoursHistory(from, to) {
+      const p = current();
+      if (p.role === 'rcm') fail('forbidden', 'Only admins and viewers see the hours history.');
+      const inRange = shifts.filter((s) => s.start >= from && s.start < to && (s.status === 'booked' || s.status === 'open'));
+      const clocked = sessions.filter((s) => s.endedAt != null).map((s) => ({ shiftId: s.shiftId, minutes: Math.round((s.endedAt! - s.startedAt) / 60_000) }));
+      return { versions: structuredClone(coverageVersions), worked: workedMinutesByShift(inRange, Object.fromEntries(reports), clocked) };
     },
     async deleteTodoTemplate(id) {
       admin('Only admins write to-do templates.');

@@ -7,6 +7,7 @@ describe('withRefresh (the board updates right after your own changes, even with
   const base = {
     mode: 'demo',
     async load() { calls.push('load'); return {}; },
+    async loadHoursHistory() { return { versions: [], worked: [] }; },
     async bookShift() { calls.push('book'); return 'id'; },
     async createTask() { calls.push('task'); return 't'; },
     async markNotificationsSeen() { calls.push('seen'); },
@@ -24,7 +25,8 @@ describe('withRefresh (the board updates right after your own changes, even with
     await repo.setMyTimezone('Europe/Rome');
     expect(refreshed).toBe(4);
     await repo.load(0, 1);
-    expect(refreshed).toBe(4); // reads do not trigger a refresh
+    await repo.loadHoursHistory(0, 1);
+    expect(refreshed).toBe(4); // reads do not trigger a refresh (or the board would reload forever)
     await expect(repo.deleteShift('x')).rejects.toThrow('nope');
     expect(refreshed).toBe(4); // failures neither
     expect(repo.mode).toBe('demo');

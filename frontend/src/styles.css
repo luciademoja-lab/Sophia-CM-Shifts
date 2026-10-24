@@ -6,22 +6,49 @@
   --danger:#c3312a; --danger-soft:rgba(195,49,42,.16);
   --warn:#a86300; --warn-soft:rgba(168,99,0,.16);
   --ok:#1d7a4b;
+  --red-fill:#d42a2a; --red-fill-hover:#b82222; --on-red:#fff;
+  --green-fill:#1e9e4a; --green-fill-hover:#178a3f; --on-green:#fff;
+  --red-glow:212,42,42;
+  --gap:rgba(212,42,42,.30);
+  --chart-required:#d42a2a; --chart-worked:#1e9e4a;
   --f-display:"Schibsted Grotesk","Helvetica Neue",Arial,sans-serif;
   --f-body:"Public Sans","Segoe UI",Roboto,Arial,sans-serif;
   --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
   --row:22px;
   color-scheme:light;
 }
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --bg:#0e1218; --surface:#161c25; --surface-2:#1e2632; --ink:#e5eaf1; --muted:#97a2b3;
-    --line:#2a3340; --line-soft:#212934;
-    --accent:#7e9cff; --accent-ink:#0e1218;
-    --danger:#ff6f62; --danger-soft:rgba(255,111,98,.18);
-    --warn:#f0a63a; --warn-soft:rgba(240,166,58,.18);
-    --ok:#4fc68a; color-scheme:dark;
-  }
+/* Dark theme, only from the Light/Dark button (data-theme on <html>): red becomes metallic
+   purple, green becomes gold, yellow becomes orange. The calendar stays white (see .boardwrap). */
+:root[data-theme="dark"]{
+  --bg:#0f0b16; --surface:#18131f; --surface-2:#221b2c; --ink:#ece8f3; --muted:#a69db5;
+  --line:#342a42; --line-soft:#261f31;
+  --accent:#9d8cff; --accent-ink:#0f0b16;
+  --danger:#b98cff; --danger-soft:rgba(185,140,255,.18);
+  --warn:#ff8a3d; --warn-soft:rgba(255,138,61,.18);
+  --ok:#d9b54a;
+  --red-fill:linear-gradient(135deg,#d6b8ff 0%,#9a5ff0 38%,#6a2fc0 70%,#9a5ff0 100%);
+  --red-fill-hover:linear-gradient(135deg,#e2caff 0%,#a970f5 38%,#7638cc 70%,#a970f5 100%);
+  --on-red:#fff;
+  --green-fill:linear-gradient(135deg,#fbeaa0 0%,#e0bb45 38%,#a8801f 70%,#e0bb45 100%);
+  --green-fill-hover:linear-gradient(135deg,#fff1b8 0%,#ebc654 38%,#b68b25 70%,#ebc654 100%);
+  --on-green:#241a04;
+  --red-glow:154,95,240;
+  --gap:rgba(185,140,255,.35);
+  --chart-required:#b98cff; --chart-worked:#d9b54a;
+  color-scheme:dark;
 }
+/* the calendar keeps its white look in dark; its accents follow the dark mapping */
+:root[data-theme="dark"] .boardwrap{
+  --bg:#f2f4f7; --surface:#ffffff; --surface-2:#e9edf2; --ink:#17212d; --muted:#596476;
+  --line:#d9dfe7; --line-soft:#e9edf2; --accent:#2a55c9; --accent-ink:#ffffff;
+  --danger:#7e3fd1; --danger-soft:rgba(126,63,209,.16);
+  --warn:#d9610f; --warn-soft:rgba(217,97,15,.16);
+  --ok:#9c7a1c;
+  --gap:rgba(126,63,209,.32);
+  color-scheme:light; color:var(--ink);
+}
+:root[data-theme="dark"] .btn.danger{background:var(--red-fill); color:var(--on-red); border-color:transparent; text-shadow:0 1px 0 rgba(0,0,0,.25)}
+:root[data-theme="dark"] .btn.danger:hover{background:var(--red-fill-hover)}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 body{
@@ -65,7 +92,7 @@ header.top{display:flex; flex-wrap:wrap; gap:12px 20px; align-items:flex-end; ju
 .sw{display:inline-block; width:14px; height:10px; border-radius:2px; vertical-align:-1px; margin-right:5px}
 .sw.mine{background:color-mix(in srgb, var(--accent) 24%, var(--surface)); border-left:3px solid var(--accent)}
 .sw.open{background:color-mix(in srgb, var(--accent) 14%, var(--surface)); border-left:3px solid var(--warn)}
-.sw.uncovered{background:rgba(212,42,42,.30)}
+.sw.uncovered{background:var(--gap)}
 
 .boardwrap{background:var(--surface); border:1px solid var(--line); border-radius:10px; overflow:auto; aspect-ratio:1 / 1; max-height:92vh; min-height:420px; position:relative}
 .board{display:grid; grid-template-columns:52px repeat(7, minmax(86px,1fr)); min-width:660px}
@@ -82,7 +109,7 @@ header.top{display:flex; flex-wrap:wrap; gap:12px 20px; align-items:flex-end; ju
   background-image:linear-gradient(to bottom, var(--line-soft) 1px, transparent 1px); background-size:100% calc(var(--row) * 4);
   touch-action:pan-x pan-y; user-select:none}
 .col.can-book{cursor:crosshair}
-.gap{position:absolute; left:0; right:0; z-index:1; background:rgba(212,42,42,.30); pointer-events:none}
+.gap{position:absolute; left:0; right:0; z-index:1; background:var(--gap); pointer-events:none}
 .shift{position:absolute; left:3px; right:3px; z-index:3; text-align:left; border:0; border-left:3px solid var(--pc); border-radius:4px;
   background:color-mix(in srgb, var(--pc) 20%, var(--surface)); padding:1px 5px; overflow:hidden; font-size:11px; line-height:1.25; display:flex; flex-direction:column; gap:0; cursor:pointer}
 .shift:hover{background:color-mix(in srgb, var(--pc) 30%, var(--surface))}
@@ -101,7 +128,7 @@ header.top{display:flex; flex-wrap:wrap; gap:12px 20px; align-items:flex-end; ju
 .ghost{position:absolute; left:3px; right:3px; z-index:2; border:1.5px dashed var(--pc); border-radius:4px; background:color-mix(in srgb, var(--pc) 8%, transparent); color:var(--ink); font:inherit; font-size:11px; text-align:left; padding:1px 5px; cursor:pointer; overflow:hidden}
 .ghost:hover, .ghost:focus-visible{background:color-mix(in srgb, var(--pc) 22%, transparent)}
 .ghost .who{font-weight:600; font-style:italic}
-.badge{display:inline-block; min-width:18px; padding:0 5px; margin-left:6px; border-radius:9px; background:var(--danger); color:#fff; font-size:11px; line-height:18px; text-align:center}
+.badge{display:inline-block; min-width:18px; padding:0 5px; margin-left:6px; border-radius:9px; background:var(--red-fill); color:var(--on-red); font-size:11px; line-height:18px; text-align:center}
 .notif{list-style:none; margin:0; padding:0; display:grid; gap:8px; max-height:60vh; overflow:auto}
 .notif li{display:grid; gap:4px; padding:8px 10px; border:1px solid var(--line); border-radius:6px}
 .notif li.unread{border-left:3px solid var(--danger)}
@@ -234,7 +261,6 @@ fieldset.plain{border:0; padding:0; margin:0; min-width:0; display:grid; gap:12p
 table.mini{font-size:13px}
 /* dashboard */
 .dashboard{display:grid; gap:14px; --series-1:#2a78d6; --series-2:#eb6834}
-@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .dashboard{--series-1:#3987e5; --series-2:#d95926} }
 :root[data-theme="dark"] .dashboard{--series-1:#3987e5; --series-2:#d95926}
 .dashboard .nums{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px}
 .stat-tile{display:grid; gap:4px}
@@ -299,9 +325,9 @@ table.mini{font-size:13px}
 .tour-actions{display:flex; align-items:center; gap:8px}
 @media (prefers-reduced-motion: reduce){ .tour-hole, .tour-bubble{transition:none} }
 /* shortfall: flashy on purpose */
-.shortfall{padding:12px 16px; border-radius:10px; background:#d42a2a; color:#fff; font-size:15px; box-shadow:0 0 0 0 rgba(212,42,42,.6); animation:shortpulse 1.6s ease-in-out infinite}
+.shortfall{padding:12px 16px; border-radius:10px; background:var(--red-fill); color:var(--on-red); font-size:15px; box-shadow:0 0 0 0 rgba(var(--red-glow),.6); animation:shortpulse 1.6s ease-in-out infinite}
 .shortfall b{font-weight:700}
-@keyframes shortpulse{0%{box-shadow:0 0 0 0 rgba(212,42,42,.55)} 70%{box-shadow:0 0 0 12px rgba(212,42,42,0)} 100%{box-shadow:0 0 0 0 rgba(212,42,42,0)}}
+@keyframes shortpulse{0%{box-shadow:0 0 0 0 rgba(var(--red-glow),.55)} 70%{box-shadow:0 0 0 12px rgba(var(--red-glow),0)} 100%{box-shadow:0 0 0 0 rgba(var(--red-glow),0)}}
 @media (prefers-reduced-motion: reduce){ .shortfall{animation:none} }
 /* calendar: full screen width, solid colours */
 .boardwrap{aspect-ratio:auto; width:calc(100vw - 32px); max-width:none; margin-left:calc(50% - 50vw + 16px); height:82vh; max-height:none}
@@ -328,8 +354,8 @@ table.mini{font-size:13px}
 .shiftbar{display:grid; gap:10px; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--surface)}
 .shiftbar.on{border-color:color-mix(in srgb, var(--ok) 50%, var(--line))}
 .shiftbtn{font-weight:700; font-size:15px; padding:9px 18px; color:#fff; border:0}
-.shiftbtn.start{background:#1e9e4a} .shiftbtn.start:hover{background:#178a3f}
-.shiftbtn.end{background:#d42a2a} .shiftbtn.end:hover{background:#b82222}
+.shiftbtn.start{background:var(--green-fill); color:var(--on-green)} .shiftbtn.start:hover{background:var(--green-fill-hover)}
+.shiftbtn.end{background:var(--red-fill); color:var(--on-red)} .shiftbtn.end:hover{background:var(--red-fill-hover)}
 .todobox{display:grid; gap:8px; padding-top:6px; border-top:1px solid var(--line-soft)}
 .todolist ul{list-style:none; margin:4px 0 0; padding:0; display:grid; gap:4px}
 .todolist li.done label{text-decoration:line-through; color:var(--muted)}
@@ -340,3 +366,10 @@ table.mini{font-size:13px}
 #tp-lines{font-family:var(--f-body)}
 .fields input[type="number"], .fields input[type="datetime-local"]{width:100%; padding:7px 10px}
 #tp-title{width:100%; padding:7px 10px}
+/* required vs worked chart */
+.chartbox{position:relative; width:100%; overflow:hidden}
+.chartbox svg{display:block}
+.chartbox .grid{stroke:var(--line-soft); stroke-width:1}
+.chartbox .axis{fill:var(--muted); font-size:11px; font-family:var(--f-mono)}
+.chartbox .cross{stroke:var(--muted); stroke-width:1; stroke-dasharray:3 3}
+.charttip{position:absolute; width:180px; padding:8px 10px; border-radius:8px; background:var(--surface); border:1px solid var(--line); box-shadow:0 6px 18px rgba(0,0,0,.14); font-size:12px; line-height:1.5; pointer-events:none}

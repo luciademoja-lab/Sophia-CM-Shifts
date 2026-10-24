@@ -8,6 +8,7 @@ import type { WeeklyReport, WorkType } from '../lib/work';
 import type { Task, TaskEvent, TaskTimeRow } from '../lib/tasks';
 import type { ShiftSession } from '../lib/session';
 import type { RepeatUnit, TodoTemplate } from '../lib/todos';
+import { workedMinutesByShift } from '../lib/history';
 import { loginEmail } from '../../../backend/supabase/functions/_shared/username.ts';
 import { parseDbError, RepoError, signInError, type Repo, type Snapshot } from './repo';
 
@@ -39,7 +40,7 @@ const iso = (ms: number) => new Date(ms).toISOString();
 type SessionRow = { id: string; shift_id: string; owner: string; started_at: string; ended_at: string | null; check_due_at: string; ended_by: ShiftSession['endedBy'] };
 type TemplateRow = { id: string; title: string; items: string[]; everyone: boolean; people: string[] | null; repeat_unit: RepeatUnit | null; repeat_every: number | null; repeat_from: string | null; slot_start: string | null; slot_end: string | null; mode: TodoTemplate['mode'] };
 export const REALTIME_TABLES = ['shifts', 'shift_log', 'coverage', 'profiles', 'shift_reports', 'availability', 'availability_days',
-  'notification_seen', 'tasks', 'task_assignees', 'task_log', 'report_tasks', 'weekly_reports', 'task_items', 'shift_sessions', 'session_todos', 'todo_templates'];
+  'notification_seen', 'tasks', 'task_assignees', 'task_log', 'report_tasks', 'weekly_reports', 'task_items', 'shift_sessions', 'session_todos', 'todo_templates', 'coverage_versions'];
 
 function check<T>(res: { data: T; error: { message: string } | null }): T {
   if (res.error) throw parseDbError(res.error.message);
@@ -212,6 +213,25 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
         slot: t.slot ? { start: iso(t.slot.start), end: iso(t.slot.end) } : null,
       };
       return check(await sb.rpc('save_todo_template', { p_id: t.id || null, p })) as string;
+    },
+    async loadHoursHistory(from, to) {
+      const [cv, sh, ss] = await Promise.all([
+        sb.from('coverage_versions').select('valid_from, tz, days').order('valid_from'),
+        sb.from('shifts').select('id, owner, starts_at, ends_at, status, covers_id').gte('starts_at', iso(from)).lt('starts_at', iso(to)).in('status', ['booked', 'open']),
+        sb.from('shift_sessions').select('shift_id, started_at, ended_at').gte('started_at', iso(from - 86_400_000)).not('ended_at', 'is', null),
+      ]);
+      const shifts = (check(sh) as ShiftRow[]).map(toShift);
+      const reports: Record<string, Report> = {};
+      const ids = shifts.map((s) => s.id);
+      for (let i = 0; i < ids.length; i += 200) {
+        const r = await sb.from('shift_reports').select('shift_id, owner, worked_minutes, notes, work_types, posters, updated_at, updated_by').in('shift_id', ids.slice(i, i + 200));
+        for (const row of check(r) as ReportRow[]) reports[row.shift_id] = toReport(row);
+      }
+      const clocked = (check(ss) as Array<{ shift_id: string; started_at: string; ended_at: string }>).map((r) => ({ shiftId: r.shift_id, minutes: Math.round((Date.parse(r.ended_at) - Date.parse(r.started_at)) / 60_000) }));
+      return {
+        versions: (check(cv) as Array<{ valid_from: string; tz: string; days: unknown }>).map((r) => ({ validFrom: Date.parse(r.valid_from), tz: r.tz, days: normalizeCoverage({ tz: r.tz, days: r.days })?.days || {} })),
+        worked: workedMinutesByShift(shifts, reports, clocked),
+      };
     },
     async deleteTodoTemplate(id) { check(await sb.rpc('delete_todo_template', { p_id: id })); },
     async toggleTaskItem(id, done) { check(await sb.rpc('toggle_task_item', { p_item: id, p_done: done })); },

@@ -89,7 +89,6 @@ export function TasksPage({ repo, me, profiles, tasks, taskTime, tz, templates }
               {people.map((p) => <option key={p.id} value={p.id}>{p.fullName}</option>)}
             </select>
             <button className="btn" type="button" data-tour="templates" onClick={() => setTemplating(true)}>To-do templates</button>
-            <button className="btn" type="button" onClick={() => setSharing(true)}>Hiring &amp; onboarding list</button>
             <button className="btn primary" type="button" data-tour="newtask" onClick={() => setEditing('new')}>New task</button>
           </>)}
         </div>

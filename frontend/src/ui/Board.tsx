@@ -3,7 +3,7 @@ import type { Repo, Snapshot } from '../data/repo';
 import { hasTarget, uncoveredRuns } from '../lib/coverage';
 import { activeShifts, canWrite, findOverlap, onDutyAt, openInRange , toCsv, type Profile, type Shift } from '../lib/shifts';
 import { availabilityIntervals, emptyAvailability } from '../lib/availability';
-import { teamColors, weeklyShare, requiredMinutesIn, shareRcms } from '../lib/team';
+import { isTestLogin, teamColors, weeklyShare, requiredMinutesIn, shareRcms } from '../lib/team';
 import { addDays, dayStartMs, dur, isoWeek, rangeLabel, shortDate, type PlainDate } from '../lib/time';
 import { CoverageEditor } from './CoverageEditor';
 import { errorText } from './errors';
@@ -25,6 +25,7 @@ import { Tour, tourSeen } from './Tour';
 import { ShiftBar } from './ShiftBar';
 import { tourFor } from '../lib/tour';
 import { clockChanges, dateValue, dayLabel } from '../lib/time';
+import { applyTheme, currentTheme, nextTheme, type Theme } from '../lib/theme';
 
 type Props = { repo: Repo; snap: Snapshot; tz: string; mon: PlainDate; onWeek: (delta: number | null) => void; loadError: string | null };
 type Dialog = { kind: 'shift'; ctx: EditorCtx } | { kind: 'report'; shift: Shift; minutes?: number } | { kind: 'coverage' } | { kind: 'team' } | { kind: 'tz' } | { kind: 'availability'; owner: Profile } | { kind: 'notifications' } | { kind: 'weekly' } | null;
@@ -43,6 +44,7 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
   const [page, setPage] = useState<Page>('schedule');
   // the tutorial starts by itself the first time someone signs in, and from the Tutorial button
   const [touring, setTouring] = useState(() => !!me && !tourSeen(me.username));
+  const [theme, setTheme] = useState<Theme>(currentTheme);
   const [toast, setToast] = useState<Toast>(null);
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(t); }, []);
@@ -77,7 +79,11 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
     const from = Math.max(w0, Math.ceil(now / 900_000) * 900_000);
     const required = availabilityIntervals({ tz: coverage.tz, week: coverage.days, days: {} }, w0, w1)
       .map((iv) => ({ start: Math.max(iv.start, from), end: iv.end })).filter((iv) => iv.end > iv.start);
-    return suggestPlan({ required, shifts: shifts.filter((s) => s.end > w0 && s.start < w1), people: rcms.map((p) => ({ id: p.id, intervals: intervalsOf(p.id) })), minMinutes: 30 });
+    const weekShifts = shifts.filter((s) => s.end > w0 && s.start < w1);
+    const people = rcms.filter((p) => !isTestLogin(p)).map((p) => ({ id: p.id, intervals: intervalsOf(p.id) })); // test logins get no suggestions
+    // the whole week, for the totals; suggestions only from now on (no shifts in the past)
+    const whole = suggestPlan({ required: availabilityIntervals({ tz: coverage.tz, week: coverage.days, days: {} }, w0, w1), shifts: weekShifts, people, minMinutes: 30 });
+    return { ...suggestPlan({ required, shifts: weekShifts, people, minMinutes: 30 }), week: { required: whole.requiredMinutes, covered: whole.coveredMinutes } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, coverage, shifts, availability, profiles, w0, w1, Math.floor(now / 900_000)]);
   const [showGhosts, setShowGhosts] = useState(true);
@@ -160,6 +166,7 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
           )}
           {isAdmin && <button className="btn" type="button" data-tour="team" onClick={() => setDialog({ kind: 'team' })}>Team</button>}
           <button className="btn" type="button" data-tour="tutorial" onClick={() => setTouring(true)}>Tutorial</button>
+          <button className="btn themebtn" type="button" aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} onClick={() => { const t = nextTheme(theme); applyTheme(t); setTheme(t); }}>{theme === 'dark' ? '☀ Light' : '☾ Dark'}</button>
           <button className="btn" type="button" onClick={() => repo.signOut()}>Sign out</button>
         </div>
       </header>
@@ -190,7 +197,7 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
       )}
 
       {page === 'tasks' && me && <TasksPage repo={repo} me={me} profiles={profiles} tasks={tasks} taskTime={taskTime} tz={tz} templates={todoTemplates} />}
-      {page === 'dashboard' && isAdmin && <Dashboard profiles={profiles} tasks={tasks} taskTime={taskTime} weeklyReports={weeklyReports} mon={mon} w0={w0} w1={w1} />}
+      {page === 'dashboard' && isAdmin && <Dashboard profiles={profiles} tasks={tasks} taskTime={taskTime} weeklyReports={weeklyReports} mon={mon} w0={w0} w1={w1} repo={repo} tz={tz} now={now} refreshKey={snap} />}
       {page === 'role' && <RolePage />}
       {page === 'schedule' && (<>
 

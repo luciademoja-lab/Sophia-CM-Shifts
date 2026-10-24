@@ -174,7 +174,7 @@ export function HistoryPanel({ log, profiles, tz, shifts, reports, me, now, onRe
 }
 
 type PlanProps = {
-  plan: Plan; profiles: Record<string, Profile>; tz: string;
+  plan: Plan & { week?: { required: number; covered: number } }; profiles: Record<string, Profile>; tz: string;
   showGhosts: boolean; onToggleGhosts: () => void;
   onAssign: (s: Suggestion) => Promise<void>;
   onAssignAll: () => Promise<void>;
@@ -185,7 +185,10 @@ export function PlanPanel({ plan, profiles, tz, showGhosts, onToggleGhosts, onAs
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const name = (id: string) => profiles[id]?.fullName || 'Someone';
+  // still open = from now on; the rest of what is not covered is already in the past
   const open = plan.requiredMinutes - plan.coveredMinutes;
+  const week = plan.week ?? { required: plan.requiredMinutes, covered: plan.coveredMinutes };
+  const past = Math.max(0, week.required - week.covered - open);
   const go = async (fn: () => Promise<void>) => {
     setBusy(true); setError(null);
     try { await fn(); } catch (e) { setError(errorText(e, tz)); } finally { setBusy(false); }
@@ -199,12 +202,13 @@ export function PlanPanel({ plan, profiles, tz, showGhosts, onToggleGhosts, onAs
           {plan.suggestions.length > 0 && <button className="btn primary" type="button" disabled={busy} onClick={() => go(onAssignAll)}>Assign all</button>}
         </div>
       </div>
-      {plan.requiredMinutes === 0 ? <p className="empty">Set the required coverage to get suggestions.</p> : (<>
+      {week.required === 0 ? <p className="empty">Set the required coverage to get suggestions.</p> : (<>
         <div className="nums">
-          <div><span className="eyebrow">Required</span><b>{dur(plan.requiredMinutes)}</b></div>
-          <div><span className="eyebrow">Covered</span><b>{dur(plan.coveredMinutes)}</b></div>
-          <div><span className="eyebrow">Still open</span><b>{dur(open)}</b></div>
-          <div><span className="eyebrow">Nobody available</span><b className={plan.noOneMinutes ? 'bad' : ''}>{plan.noOneMinutes ? dur(plan.noOneMinutes) : '–'}</b></div>
+          <div><span className="eyebrow">Required this week</span><b data-testid="plan-required">{dur(week.required)}</b></div>
+          <div><span className="eyebrow">Covered</span><b>{dur(week.covered)}</b></div>
+          <div><span className="eyebrow">Not covered, already past</span><b>{past ? dur(past) : '–'}</b></div>
+          <div><span className="eyebrow">Still open (from now)</span><b>{dur(open)}</b></div>
+          <div><span className="eyebrow">Nobody available (from now)</span><b className={plan.noOneMinutes ? 'bad' : ''}>{plan.noOneMinutes ? dur(plan.noOneMinutes) : '–'}</b></div>
         </div>
         <table>
           <thead><tr><th>SCM</th><th className="num">Offered on open hours</th><th className="num">Booked</th><th className="num">Suggested</th><th className="num">Total</th></tr></thead>
@@ -231,7 +235,7 @@ export function PlanPanel({ plan, profiles, tz, showGhosts, onToggleGhosts, onAs
             ))}
           </ul>
         ) : <p className="empty">{open ? 'Nobody is available for the hours still open.' : 'All required hours are covered.'}</p>}
-        <p className="note">The plan shares the open required hours so everyone's total for the week is as even as their availability allows. SCMs available only a few hours get all of them. Suggested shifts are at least 30 minutes.</p>
+        <p className="note">Suggestions start from now: past hours can no longer be covered. The plan shares the open required hours so everyone's total for the week is as even as their availability allows. SCMs available only a few hours get all of them. Suggested shifts are at least 30 minutes.</p>
         {error && <p className="err" role="alert">{error}</p>}
       </>)}
     </div>

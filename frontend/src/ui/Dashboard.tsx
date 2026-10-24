@@ -1,3 +1,5 @@
+import type { Repo } from '../data/repo';
+import { HoursChart } from './HoursChart';
 import { useState } from 'react';
 import type { Profile } from '../lib/shifts';
 import { completedCounts, estimateStats, type EstimateLine, type Task, type TaskTimeRow } from '../lib/tasks';
@@ -7,12 +9,13 @@ import { dur, shortDate, addDays, type PlainDate } from '../lib/time';
 type Props = {
   profiles: Record<string, Profile>; tasks: Task[]; taskTime: TaskTimeRow[]; weeklyReports: WeeklyReport[];
   mon: PlainDate; w0: number; w1: number;
+  repo: Repo; tz: string; now: number; refreshKey: unknown;
 };
 
 const pct = (n: number) => (n > 0 ? `+${n}%` : `${n}%`);
 
 /** Admins: estimated vs logged time on completed tasks, and tasks completed this week. */
-export function Dashboard({ profiles, tasks, taskTime, weeklyReports, mon, w0, w1 }: Props) {
+export function Dashboard({ profiles, tasks, taskTime, weeklyReports, mon, w0, w1, repo, tz, now, refreshKey }: Props) {
   const [scope, setScope] = useState<'week' | 'all'>('week');
   const rcms = Object.values(profiles).filter((p) => p.active && p.role === 'rcm').sort((a, b) => a.fullName.localeCompare(b.fullName));
   // speed metrics are about SCMs only: tasks completed by admins are left out
@@ -35,6 +38,7 @@ export function Dashboard({ profiles, tasks, taskTime, weeklyReports, mon, w0, w
 
   return (
     <section className="dashboard viz-root" data-tour="dashboard">
+      <HoursChart repo={repo} tz={tz} now={now} refreshKey={refreshKey} />
       <div className="nums">
         <div className="panel stat-tile"><span className="eyebrow">Completed by the whole team</span><b data-testid="done-total">{done.total}</b><span className="sub">{week}</span></div>
         <div className="panel stat-tile"><span className="eyebrow">Completed by SCMs</span><b data-testid="done-rcms">{byRcms}</b><span className="sub">{week}</span></div>
