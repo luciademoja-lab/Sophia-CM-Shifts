@@ -10,7 +10,7 @@ describe('tourFor', () => {
       expect(new Set(steps.map((s) => s.id)).size).toBe(steps.length);
     }
   });
-  it('follows a typical week for RCMs: availability, booking, reports, weekly report, tasks', () => {
+  it('follows a typical week for SCMs: availability, booking, reports, weekly report, tasks', () => {
     const ids = tourFor('rcm').map((s) => s.id);
     expect(ids.indexOf('availability')).toBeLessThan(ids.indexOf('grid'));
     expect(ids.indexOf('hours')).toBeLessThan(ids.indexOf('weekly'));

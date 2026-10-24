@@ -36,7 +36,7 @@ describe('who sees which task', () => {
   it('shows admins every task', () => {
     expect([mine, krisOnly, adminOnly, shared, grab, adminGrab].every((t) => canSeeTask(t, lucia))).toBe(true);
   });
-  it("shows RCMs their own tasks and the ones up for grabs, never admins' or colleagues'", () => {
+  it("shows SCMs their own tasks and the ones up for grabs, never admins' or colleagues'", () => {
     expect([mine, krisOnly, adminOnly, shared, grab, adminGrab].filter((t) => canSeeTask(t, regina)).map((t) => t.id)).toEqual(['mine', 'shared', 'grab']);
   });
   it('hides tasks from viewers', () => {
@@ -63,7 +63,7 @@ describe('task cards and columns', () => {
     expect(column(cards, 'done').map((c) => c.task.id)).toEqual(['e', 'd']);
     expect(column(cards, 'grabs').map((c) => c.task.id)).toEqual(['c']);
   });
-  it('lets RCMs move only their own card, admins any card', () => {
+  it('lets SCMs move only their own card, admins any card', () => {
     const [aRegina, aKris] = taskCards(tasks, lucia, null);
     expect(canMove(aRegina, regina)).toBe(true);
     expect(canMove(aKris, regina)).toBe(false);
@@ -88,7 +88,7 @@ describe('estimated vs actual time', () => {
     expect(actualMinutes(rows, 'a', null)).toBe(135);
   });
 
-  it('compares the estimate with the reported time per RCM and for the team, on completed tasks', () => {
+  it('compares the estimate with the reported time per SCM and for the team, on completed tasks', () => {
     const tasks = [
       task('a', [['regina', 'done', 3 * H], ['kris', 'done', 4 * H]], { estimateMinutes: 60 }), // regina 90 (+50%), kris 45 (−25%)
       task('b', [['regina', 'done', 5 * H]], { estimateMinutes: 120 }), // regina 60 (−50%)

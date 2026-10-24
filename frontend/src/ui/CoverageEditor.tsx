@@ -34,7 +34,7 @@ export function CoverageEditor({ repo, coverage, fallbackTz, onClose }: { repo: 
       <div>
         <div className="eyebrow">Admin</div>
         <h2>Required coverage</h2>
-        <p className="note">Hours that must always have one RCM on duty. Add several slots to a day to leave gaps between them. Uncovered hours turn red on the board.</p>
+        <p className="note">Hours that must always have one SCM on duty. Add several slots to a day to leave gaps between them. Uncovered hours turn red on the board.</p>
       </div>
       <Field label="Time zone of these hours" htmlFor="cov-tz">
         <select id="cov-tz" value={tz} onChange={(e) => setTz(e.target.value)}>

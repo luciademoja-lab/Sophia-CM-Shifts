@@ -22,16 +22,17 @@ import { TasksPage } from './TasksPage';
 import { Dashboard } from './Dashboard';
 import { RolePage } from './RolePage';
 import { Tour, tourSeen } from './Tour';
+import { ShiftBar } from './ShiftBar';
 import { tourFor } from '../lib/tour';
 import { clockChanges, dateValue, dayLabel } from '../lib/time';
 
 type Props = { repo: Repo; snap: Snapshot; tz: string; mon: PlainDate; onWeek: (delta: number | null) => void; loadError: string | null };
-type Dialog = { kind: 'shift'; ctx: EditorCtx } | { kind: 'report'; shift: Shift } | { kind: 'coverage' } | { kind: 'team' } | { kind: 'tz' } | { kind: 'availability'; owner: Profile } | { kind: 'notifications' } | { kind: 'weekly' } | null;
+type Dialog = { kind: 'shift'; ctx: EditorCtx } | { kind: 'report'; shift: Shift; minutes?: number } | { kind: 'coverage' } | { kind: 'team' } | { kind: 'tz' } | { kind: 'availability'; owner: Profile } | { kind: 'notifications' } | { kind: 'weekly' } | null;
 type Page = 'schedule' | 'tasks' | 'dashboard' | 'role';
 type Toast = { msg: string; undo?: () => Promise<unknown> } | null;
 
 export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
-  const { me, profiles, shifts, coverage, log, reports, availability, requests, notificationsSeenAt, tasks, taskTime, taskLog, weeklyReports } = snap;
+  const { me, profiles, shifts, coverage, log, reports, availability, requests, notificationsSeenAt, tasks, taskTime, taskLog, weeklyReports, sessions, sessionTodos, todoTemplates } = snap;
   const isAdmin = me?.role === 'admin';
   const canBook = canWrite(me);
   const isViewer = me?.role === 'viewer';
@@ -44,7 +45,7 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
   const [touring, setTouring] = useState(() => !!me && !tourSeen(me.username));
   const [toast, setToast] = useState<Toast>(null);
   const [now, setNow] = useState(Date.now());
-  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60_000); return () => clearInterval(t); }, []);
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(t); }, []);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 7000); return () => clearTimeout(t); }, [toast]);
 
   const w0 = dayStartMs(mon, tz), w1 = dayStartMs(addDays(mon, 7), tz);
@@ -85,7 +86,7 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
   async function assignAll() {
     for (const g of plan?.suggestions || []) await assign(g);
   }
-  // each RCM's share of the week's required hours, and who is still below it
+  // each SCM's share of the week's required hours, and who is still below it
   const requiredWeek = coverage && hasTarget(coverage) ? availabilityIntervals({ tz: coverage.tz, week: coverage.days, days: {} }, w0, w1) : [];
   const share = weeklyShare(requiredMinutesIn(requiredWeek), profiles);
   const takenMinutes = (id: string) => shifts.filter((s) => s.owner === id && (s.status === 'booked' || s.status === 'pending' || s.status === 'open'))
@@ -127,12 +128,12 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
     <div className="wrap">
       <header className="top">
         <div>
-          <div className="eyebrow">Vik Studios · Recruiter &amp; Community Managers</div>
-          <h1>RCM Shifts</h1>
+          <div className="eyebrow">Vik Studios · Success Community Managers</div>
+          <h1>SCM Shifts</h1>
           <div className="muted">
             <span data-tour="tz">Times shown in your time zone: {tz}</span>{' '}
             <button type="button" className="linkbtn" onClick={() => setDialog({ kind: 'tz' })}>Change</button>
-            {me && <> · <span>Signed in as {me.fullName}, {isAdmin ? 'admin' : isViewer ? 'read-only' : 'RCM'}</span></>}
+            {me && <> · <span>Signed in as {me.fullName}, {isAdmin ? 'admin' : isViewer ? 'read-only' : 'SCM – Success Community Manager'}</span></>}
           </div>
         </div>
         <div className="userbar">
@@ -173,6 +174,10 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
         </nav>
       )}
 
+      {page === 'schedule' && me && !isViewer && (
+        <ShiftBar repo={repo} me={me} tz={tz} now={now} shifts={shifts} sessions={sessions} sessionTodos={sessionTodos} templates={todoTemplates}
+          onEnded={(s, minutes) => setDialog({ kind: 'report', shift: s, minutes })} />
+      )}
       {page === 'schedule' && myShort && (
         <div className="shortfall" role="alert" data-testid="shortfall">
           <b>You have booked {dur(myShort.taken)} of your {dur(share)} this week.</b> Book {dur(share - myShort.taken)} more to reach your share of the required hours.
@@ -184,7 +189,7 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
         </div>
       )}
 
-      {page === 'tasks' && me && <TasksPage repo={repo} me={me} profiles={profiles} tasks={tasks} taskTime={taskTime} tz={tz} />}
+      {page === 'tasks' && me && <TasksPage repo={repo} me={me} profiles={profiles} tasks={tasks} taskTime={taskTime} tz={tz} templates={todoTemplates} />}
       {page === 'dashboard' && isAdmin && <Dashboard profiles={profiles} tasks={tasks} taskTime={taskTime} weeklyReports={weeklyReports} mon={mon} w0={w0} w1={w1} />}
       {page === 'role' && <RolePage />}
       {page === 'schedule' && (<>
@@ -209,8 +214,8 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
       )}
 
       <div className="legend" data-tour="legend">
-        <span><span className="sw avail-sw" />{shown === 'team' ? 'Availability (thin coloured lanes, one per RCM)' : fixedToSelf ? 'Your availability' : `${profiles[shown]?.fullName ?? ''}'s availability`}</span>
-        <span><span className="sw mine" />Shift (in the RCM’s colour)</span>
+        <span><span className="sw avail-sw" />{shown === 'team' ? 'Availability (thin coloured lanes, one per SCM)' : fixedToSelf ? 'Your availability' : `${profiles[shown]?.fullName ?? ''}'s availability`}</span>
+        <span><span className="sw mine" />Shift (in the SCM’s colour)</span>
         <span><span className="sw open" />Needs cover</span>
         <span><span className="sw uncovered" />Required but not covered</span>
         <span><span className="sw pending-sw" />Request (waiting for approval)</span>
@@ -222,7 +227,7 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
         <p key={c.day} className="dstnote" data-testid="dst-note">
           <b>{dayLabel(dayStartMs(addDays(mon, c.day), tz) + 12 * 3_600_000, tz)}:</b> the clocks change in only one of {coverage.tz} and {tz}.
           The required hours are set in {coverage.tz} time, so from this day they show {Math.abs(c.minutes) / 60} hour {c.minutes > 0 ? 'later' : 'earlier'} in your time zone.
-          They have not moved in {coverage.tz}. Availability of RCMs in other time zones moves the same way.
+          They have not moved in {coverage.tz}. Availability of SCMs in other time zones moves the same way.
         </p>
       ))}
 
@@ -249,7 +254,7 @@ export function Board({ repo, snap, tz, mon, onWeek, loadError }: Props) {
         <ShiftEditor ctx={dialog.ctx} repo={repo} tz={tz} me={me} profiles={profiles} shifts={shifts} reports={reports} availability={availability} coverage={coverage} now={now} onClose={() => setDialog(null)} onReport={(s) => setDialog({ kind: 'report', shift: s })} />
       )}
       {dialog?.kind === 'report' && me && (
-        <ReportEditor repo={repo} shift={dialog.shift} report={reports[dialog.shift.id]} tz={tz} me={me} profiles={profiles} tasks={tasks} weeklyReports={weeklyReports} onClose={() => setDialog(null)} />
+        <ReportEditor repo={repo} shift={dialog.shift} workedMinutes={dialog.minutes} report={reports[dialog.shift.id]} tz={tz} me={me} profiles={profiles} tasks={tasks} weeklyReports={weeklyReports} onClose={() => setDialog(null)} />
       )}
       {dialog?.kind === 'availability' && me && (
         <Modal label="Availability" wide onClose={() => setDialog(null)}>

@@ -37,7 +37,7 @@ export type TaskEvent = {
 export type TaskTimeRow = { taskId: string; person: string; minutes: number };
 
 export function validateTask(t: TaskInput, people?: string[]): string | null {
-  if (people && !people.length && !t.grabsFor) return 'Choose whether this task is up for grabs for RCMs or for admins.';
+  if (people && !people.length && !t.grabsFor) return 'Choose whether this task is up for grabs for SCMs or for admins.';
   if (!t.title.trim()) return 'Give the task a title.';
   if (t.title.length > 200) return 'The title is too long.';
   if (t.description.length > 4000) return 'The description is too long.';
@@ -46,7 +46,7 @@ export function validateTask(t: TaskInput, people?: string[]): string | null {
   return null;
 }
 
-/** Admins see everything; RCMs their own tasks and the ones up for grabs; viewers nothing. */
+/** Admins see everything; SCMs their own tasks and the ones up for grabs; viewers nothing. */
 export function canSeeTask(t: Task, me: Profile | null): boolean {
   if (!me || !me.active) return false;
   if (me.role === 'admin') return true;

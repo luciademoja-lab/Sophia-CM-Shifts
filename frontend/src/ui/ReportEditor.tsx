@@ -12,9 +12,11 @@ import { Field, Modal } from './Modal';
 type Props = {
   repo: Repo; shift: Shift; report: Report | undefined; tz: string; me: Profile; profiles: Record<string, Profile>;
   tasks: Task[]; weeklyReports: WeeklyReport[]; onClose: () => void;
+  /** minutes clocked with Start/End shift, used when there is no report yet */
+  workedMinutes?: number;
 };
 
-/** True when the RCM already sent the weekly report covering this shift (admins can still edit). */
+/** True when the SCM already sent the weekly report covering this shift (admins can still edit). */
 export function reportLocked(shift: Shift, me: Profile, profiles: Record<string, Profile>, weekly: WeeklyReport[]): boolean {
   if (me.role !== 'rcm') return false;
   const week = reportWeek(shift.start, profiles[shift.owner]?.timezone || 'UTC');
@@ -23,10 +25,10 @@ export function reportLocked(shift: Shift, me: Profile, profiles: Record<string,
 
 const step5 = (m: number) => Math.max(5, Math.round(m / 5) * 5);
 
-/** The RCM (or an admin) logs the hours worked, the kinds of work done and the time on tasks. */
-export function ReportEditor({ repo, shift, report, tz, me, profiles, tasks, weeklyReports, onClose }: Props) {
+/** The SCM (or an admin) logs the hours worked, the kinds of work done and the time on tasks. */
+export function ReportEditor({ repo, shift, report, tz, me, profiles, tasks, weeklyReports, onClose, workedMinutes }: Props) {
   const booked = Math.round((shift.end - shift.start) / 60000);
-  const initial = report ? report.workedMinutes : booked;
+  const initial = report ? report.workedMinutes : Math.min(24 * 60, Math.round((workedMinutes ?? booked) / 5) * 5);
   const [hours, setHours] = useState(Math.floor(initial / 60));
   const [minutes, setMinutes] = useState(initial % 60 - (initial % 5));
   const [types, setTypes] = useState<WorkType[]>(report?.workTypes || []);
@@ -42,7 +44,7 @@ export function ReportEditor({ repo, shift, report, tz, me, profiles, tasks, wee
   const title = (id: string) => tasks.find((t) => t.id === id)?.title || 'Task';
 
   const toggleType = (t: WorkType) => setTypes((list) => (list.includes(t) ? list.filter((x) => x !== t) : WORK_TYPES.filter((x) => x === t || list.includes(x))));
-  // Linking a task splits the hours worked evenly between the linked tasks; the RCM can then adjust.
+  // Linking a task splits the hours worked evenly between the linked tasks; the SCM can then adjust.
   const toggleTask = (id: string) => setLinked((list) => {
     const next = list.some((x) => x.taskId === id) ? list.filter((x) => x.taskId !== id) : [...list, { taskId: id, minutes: 0 }];
     const each = next.length ? step5(Math.floor(worked / next.length / 5) * 5) : 0;

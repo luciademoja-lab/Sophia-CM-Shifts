@@ -1,4 +1,4 @@
-/* Ported from the original RCM Shifts artifact: one working board, 15-minute rows. */
+/* Ported from the original SCM Shifts artifact: one working board, 15-minute rows. */
 :root{
   --bg:#f2f4f7; --surface:#ffffff; --surface-2:#e9edf2; --ink:#17212d; --muted:#596476;
   --line:#d9dfe7; --line-soft:#e9edf2;
@@ -313,7 +313,7 @@ table.mini{font-size:13px}
 .panels.admin > .panel.wide{grid-column:1 / -1}
 @media (max-width:800px){ .panels.admin{grid-template-columns:1fr} }
 
-/* slots: solid colours only. Booked by the rules = stronger tint of the RCM colour;
+/* slots: solid colours only. Booked by the rules = stronger tint of the SCM colour;
    not confirmed yet (request) or waiting for cover = light tint. */
 .shift{background:color-mix(in srgb, var(--pc) 55%, var(--surface))}
 .shift:hover{background:color-mix(in srgb, var(--pc) 68%, var(--surface))}
@@ -324,3 +324,19 @@ table.mini{font-size:13px}
 .wrap{max-width:none; width:80vw}
 @media (max-width:900px){ .wrap{width:auto} }
 .boardwrap{width:100%; margin-left:0}
+/* Start / End shift */
+.shiftbar{display:grid; gap:10px; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--surface)}
+.shiftbar.on{border-color:color-mix(in srgb, var(--ok) 50%, var(--line))}
+.shiftbtn{font-weight:700; font-size:15px; padding:9px 18px; color:#fff; border:0}
+.shiftbtn.start{background:#1e9e4a} .shiftbtn.start:hover{background:#178a3f}
+.shiftbtn.end{background:#d42a2a} .shiftbtn.end:hover{background:#b82222}
+.todobox{display:grid; gap:8px; padding-top:6px; border-top:1px solid var(--line-soft)}
+.todolist ul{list-style:none; margin:4px 0 0; padding:0; display:grid; gap:4px}
+.todolist li.done label{text-decoration:line-through; color:var(--muted)}
+.tpl-list{list-style:none; margin:0; padding:0; display:grid; gap:8px}
+.tpl-list li{display:grid; gap:4px; padding:10px; border:1px solid var(--line); border-radius:8px}
+.tpl-list .sub{font-size:12px; color:var(--muted)}
+.check.indent{margin-left:24px}
+#tp-lines{font-family:var(--f-body)}
+.fields input[type="number"], .fields input[type="datetime-local"]{width:100%; padding:7px 10px}
+#tp-title{width:100%; padding:7px 10px}

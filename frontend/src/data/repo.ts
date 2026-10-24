@@ -6,6 +6,8 @@ import type { Availability } from '../lib/availability';
 import type { LogEntry, Profile, Report, Role, Shift } from '../lib/shifts';
 import type { ReportInput, WeeklyReport } from '../lib/work';
 import type { ContractLine } from '../lib/contracts';
+import type { ShiftSession } from '../lib/session';
+import type { TodoTemplate } from '../lib/todos';
 import type { Task, TaskEvent, TaskInput, TaskStatus, TaskTimeRow } from '../lib/tasks';
 
 export type Snapshot = {
@@ -20,17 +22,24 @@ export type Snapshot = {
   notificationsSeenAt: number;
   /** every request waiting for an admin, any week */
   requests: Shift[];
-  /** availability of every admin and RCM, by profile id */
+  /** availability of every admin and SCM, by profile id */
   availability: Record<string, Availability>;
   /** tasks the signed-in person may see (none for viewers) */
   tasks: Task[];
-  /** time linked to tasks in shift reports: everyone's for admins, own for RCMs */
+  /** time linked to tasks in shift reports: everyone's for admins, own for SCMs */
   taskTime: TaskTimeRow[];
   /** admins only: what happened to tasks */
   taskLog: TaskEvent[];
-  /** weekly reports: all for admins and viewers, own for RCMs */
+  /** weekly reports: all for admins and viewers, own for SCMs */
   weeklyReports: WeeklyReport[];
+  /** Start/End shift sessions: own for SCMs, all for admins and viewers (recent ones) */
+  sessions: ShiftSession[];
+  /** to-dos ticked in those sessions */
+  sessionTodos: SessionTodo[];
+  /** to-do templates: all for admins, the ones for them for SCMs */
+  todoTemplates: TodoTemplate[];
 };
+export type SessionTodo = { sessionId: string; templateId: string; item: number };
 
 export type NewLogin = { username: string; fullName: string; password: string; role: Role };
 
@@ -55,7 +64,7 @@ export interface Repo {
   takeShift(id: string, forId?: string | null): Promise<string>;
   setCoverage(tz: string, days: CoverageDays): Promise<void>;
   saveReport(shiftId: string, report: ReportInput): Promise<void>;
-  /** RCMs, from the Sunday of that week; week = Monday "YYYY-MM-DD" in their time zone */
+  /** SCMs, from the Sunday of that week; week = Monday "YYYY-MM-DD" in their time zone */
   submitWeekly(week: string, message: string): Promise<string>;
   approveWeekly(id: string): Promise<void>;
   rejectWeekly(id: string): Promise<void>;
@@ -65,9 +74,18 @@ export interface Repo {
   /** person defaults to the signed-in user */
   moveTask(id: string, person: string | null, status: TaskStatus): Promise<void>;
   claimTask(id: string): Promise<void>;
-  /** admins: share out the morning's contracts evenly, one task per RCM in `people` */
+  /** admins: share out the morning's contracts evenly, one task per SCM in `people` */
   createContractTasks(task: TaskInput, minutesEach: number, people: string[], items: ContractLine[]): Promise<string[]>;
   toggleTaskItem(id: string, done: boolean): Promise<void>;
+  /** SCMs: clock in during their own booked shift */
+  startShift(shiftId: string): Promise<string>;
+  /** "Yes, I'm still working" */
+  confirmShift(sessionId: string): Promise<void>;
+  endShift(sessionId: string): Promise<void>;
+  toggleSessionTodo(sessionId: string, templateId: string, item: number, done: boolean): Promise<void>;
+  /** admins; id '' creates a new template */
+  saveTodoTemplate(t: TodoTemplate): Promise<string>;
+  deleteTodoTemplate(id: string): Promise<void>;
   approveShift(id: string): Promise<void>;
   rejectShift(id: string): Promise<void>;
   deleteLog(id: string): Promise<void>;
@@ -121,13 +139,14 @@ export function signInError(message: string): RepoError {
 export function parseDbError(message: string): RepoError {
   const m = /(RCM_[A-Z_]+)(?::\s*(.*))?/.exec(message || '');
   if (!m) {
-    if (/shifts_one_rcm_per_slot/.test(message)) return new RepoError('overlap', 'Only one RCM per slot.');
+    if (/shifts_one_rcm_per_slot/.test(message)) return new RepoError('overlap', 'Only one SCM per slot.');
     const e = new RepoError('network', 'Could not save. Check your connection and try again.');
     e.detail = message;
     return e;
   }
   const code = CODES[m[1]] || 'invalid';
-  const detail = (m[2] || '').trim();
+  // the database still says "RCM" in a few messages: the role is now called SCM
+  const detail = (m[2] || '').trim().replace(/\bRCM(s?)\b/g, 'SCM$1');
   if (code === 'overlap') {
     const o = /^overlaps (.+)'s shift (\S+)\/(\S+)$/.exec(detail);
     if (o) return new RepoError('overlap', detail, { who: o[1], start: Date.parse(o[2]), end: Date.parse(o[3]) });

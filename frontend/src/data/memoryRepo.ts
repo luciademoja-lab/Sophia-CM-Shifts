@@ -8,6 +8,9 @@ import { inBookingWindow } from '../lib/team';
 import { canSubmitWeekly, reportWeek, validateReport, weeklyMinutes, type WeeklyReport } from '../lib/work';
 import { canSeeTask, taskTimeRows, validateTask, STATUSES, type Task, type TaskEvent } from '../lib/tasks';
 import { splitEvenly } from '../lib/contracts';
+import { CHECK_EVERY, sessionState, type ShiftSession } from '../lib/session';
+import { templateConflict, validateTemplate, type TodoTemplate } from '../lib/todos';
+import type { SessionTodo } from './repo';
 import { normalizeUsername, validatePassword, validateUsername } from '../../../backend/supabase/functions/_shared/username.ts';
 import { RepoError, type NewLogin, type Repo, type Snapshot } from './repo';
 
@@ -33,6 +36,15 @@ export function createMemoryRepo(seed: Seed): Repo {
   let tasks: Task[] = [];
   const taskLog: TaskEvent[] = [];
   const weekly: WeeklyReport[] = [];
+  let sessions: ShiftSession[] = [];
+  let sessionTodos: SessionTodo[] = [];
+  let templates: TodoTemplate[] = [];
+  const closeStale = () => {
+    for (const s of sessions) {
+      const st = sessionState(s, now());
+      if (s.endedAt == null && !st.open) { s.endedAt = st.endedAt; s.endedBy = 'timeout'; }
+    }
+  };
   const now = seed.now || (() => Date.now());
   const weeks = new Map<string, CoverageDays>();
   const exceptions = new Map<string, Record<string, Slot[]>>();
@@ -71,7 +83,7 @@ export function createMemoryRepo(seed: Seed): Repo {
   };
   const writer = () => { const p = current(); if (p.role === 'viewer') fail('forbidden', 'You have read-only access.'); return p; };
   const admin = (msg: string) => { const p = current(); if (p.role !== 'admin') fail('forbidden', msg); return p; };
-  const activeRcm = (id: string) => { const t = profiles.get(id); if (!t?.active || t.role === 'viewer') fail('invalid', 'That person has no active RCM login.'); };
+  const activeRcm = (id: string) => { const t = profiles.get(id); if (!t?.active || t.role === 'viewer') fail('invalid', 'That person has no active SCM login.'); };
   const range = (start: number, end: number) => {
     if (!(end > start)) fail('invalid', 'The end must be after the start.');
     if (end - start > 24 * 3_600_000) fail('invalid', 'A shift can last at most 24 hours.');
@@ -84,7 +96,7 @@ export function createMemoryRepo(seed: Seed): Repo {
     for (let t = start; t < end; t += 15 * 60_000) if (!isRequired(t + 1, c)) return false;
     return true;
   };
-  // RCMs: only this week and next (Sunday opens the week after); outside the required hours it is a request.
+  // SCMs: only this week and next (Sunday opens the week after); outside the required hours it is a request.
   const statusFor = (p: Profile, owner: string, start: number, end: number): 'booked' | 'pending' => {
     if (p.role !== 'rcm') return 'booked';
     if (!inBookingWindow(start, end, now(), profiles.get(owner)?.timezone || 'UTC')) fail('invalid', 'You can book shifts in this week and next week only (the week after opens on Sunday).');
@@ -120,7 +132,7 @@ export function createMemoryRepo(seed: Seed): Repo {
     taskLog.push({ id: newId('k'), at: now(), actor, taskId: t.id, title: t.title, person, action, status });
   };
   const checkPeople = (people: string[]) => {
-    for (const id of people) { const t = profiles.get(id); if (!t?.active || t.role === 'viewer') fail('invalid', 'Tasks can only be assigned to admins and RCMs.'); }
+    for (const id of people) { const t = profiles.get(id); if (!t?.active || t.role === 'viewer') fail('invalid', 'Tasks can only be assigned to admins and SCMs.'); }
     return [...new Set(people)];
   };
   const decideWeekly = (id: string, status: 'approved' | 'rejected') => {
@@ -146,6 +158,7 @@ export function createMemoryRepo(seed: Seed): Repo {
     async signOut() { me = null; authListeners.forEach((f) => f()); },
     onAuthChange(cb) { authListeners.add(cb); return () => authListeners.delete(cb); },
     async load(from, to): Promise<Snapshot> {
+      closeStale();
       return {
         me: me ? { ...profiles.get(me)! } : null,
         profiles: Object.fromEntries([...profiles.values()].map((p) => [p.id, { ...p }])),
@@ -168,6 +181,9 @@ export function createMemoryRepo(seed: Seed): Repo {
             taskTime: role === 'viewer' ? [] : rows,
             taskLog: role === 'admin' ? taskLog.map((e) => ({ ...e })) : [],
             weeklyReports: weekly.filter((w) => role === 'admin' || role === 'viewer' || w.owner === me).map((w) => ({ ...w })),
+            sessions: sessions.filter((s) => role === 'admin' || role === 'viewer' || s.owner === me).map((s) => ({ ...s })),
+            sessionTodos: sessionTodos.filter((t) => sessions.some((s) => s.id === t.sessionId && (role === 'admin' || role === 'viewer' || s.owner === me))).map((t) => ({ ...t })),
+            todoTemplates: templates.filter((t) => role === 'admin' || (role === 'rcm' && (t.everyone || t.people.includes(me!)))).map((t) => structuredClone(t)),
           };
         })(),
       };
@@ -273,7 +289,7 @@ export function createMemoryRepo(seed: Seed): Repo {
 
     async submitWeekly(week, message) {
       const p = writer();
-      if (p.role !== 'rcm') fail('forbidden', 'Only RCMs send weekly reports.');
+      if (p.role !== 'rcm') fail('forbidden', 'Only SCMs send weekly reports.');
       const d = parseDateValue(week);
       if (!d || new Date(Date.UTC(d.y, d.m - 1, d.d)).getUTCDay() !== 1) fail('invalid', 'Pick the Monday of the week.');
       const tz = tzOf(p.id);
@@ -335,9 +351,9 @@ export function createMemoryRepo(seed: Seed): Repo {
     },
     async createContractTasks(input, minutesEach, people, items) {
       const p = admin('Only admins can share out contracts.');
-      if (!people.length) fail('invalid', 'Pick at least one RCM.');
-      if (new Set(people).size !== people.length) fail('invalid', 'The same RCM is listed twice.');
-      for (const id of people) { const t = profiles.get(id); if (!t?.active || t.role !== 'rcm') fail('invalid', 'Contracts can only go to active RCMs.'); }
+      if (!people.length) fail('invalid', 'Pick at least one SCM.');
+      if (new Set(people).size !== people.length) fail('invalid', 'The same SCM is listed twice.');
+      for (const id of people) { const t = profiles.get(id); if (!t?.active || t.role !== 'rcm') fail('invalid', 'Contracts can only go to active SCMs.'); }
       if (!items.length) fail('invalid', 'Paste at least one contract link.');
       if (items.length > 500) fail('invalid', 'At most 500 contracts at a time.');
       if (items.some((i) => !/^https?:\/\//i.test(i.url))) fail('invalid', 'Every contract needs a link starting with https://.');
@@ -364,11 +380,59 @@ export function createMemoryRepo(seed: Seed): Repo {
       const it = t.items.find((i) => i.id === id)!;
       it.doneAt = done ? it.doneAt ?? now() : null; it.doneBy = done ? p.id : null; changed();
     },
+    async startShift(shiftId) {
+      const p = writer(); closeStale();
+      const s = shifts.find((x) => x.id === shiftId);
+      if (!s) return fail('not_found', 'That shift no longer exists.');
+      if (s.owner !== p.id) fail('forbidden', 'You can only start your own shifts.');
+      if (s.status !== 'booked') fail('invalid', 'This shift is not confirmed.');
+      if (now() < s.start || now() >= s.end) fail('invalid', 'You can start a shift only while it is on.');
+      if (sessions.some((x) => x.owner === p.id && x.endedAt == null)) fail('invalid', 'You already started a shift.');
+      const id = newId('ss');
+      sessions.push({ id, shiftId, owner: p.id, startedAt: now(), endedAt: null, checkDueAt: s.end, endedBy: null }); changed();
+      return id;
+    },
+    async confirmShift(id) {
+      const p = writer(); closeStale();
+      const s = sessions.find((x) => x.id === id && x.owner === p.id && x.endedAt == null && now() >= x.checkDueAt);
+      if (!s) return fail('invalid', 'This shift has already ended.');
+      s.checkDueAt = now() + CHECK_EVERY; changed();
+    },
+    async endShift(id) {
+      const p = writer(); closeStale();
+      const s = sessions.find((x) => x.id === id && x.owner === p.id && x.endedAt == null);
+      if (!s) return fail('invalid', 'This shift has already ended.');
+      s.endedAt = now(); s.endedBy = 'user'; changed();
+    },
+    async toggleSessionTodo(sessionId, templateId, item, done) {
+      const p = writer();
+      if (!sessions.some((s) => s.id === sessionId && s.owner === p.id)) fail('forbidden', 'Only the person working the shift can tick its to-dos.');
+      sessionTodos = sessionTodos.filter((t) => !(t.sessionId === sessionId && t.templateId === templateId && t.item === item));
+      if (done) sessionTodos.push({ sessionId, templateId, item });
+      changed();
+    },
+    async saveTodoTemplate(t) {
+      admin('Only admins write to-do templates.');
+      const clean: TodoTemplate = { ...structuredClone(t), title: t.title.trim(), items: t.items.map((i) => i.trim()).filter(Boolean), people: t.everyone ? [] : [...t.people] };
+      const err = validateTemplate(clean) || templateConflict(clean, templates); if (err) fail('invalid', err);
+      if (clean.id) {
+        const i = templates.findIndex((x) => x.id === clean.id);
+        if (i < 0) fail('not_found', 'That template no longer exists.');
+        templates[i] = clean;
+      } else { clean.id = newId('tt'); templates.push(clean); }
+      changed();
+      return clean.id;
+    },
+    async deleteTodoTemplate(id) {
+      admin('Only admins write to-do templates.');
+      templates = templates.filter((t) => t.id !== id);
+      sessionTodos = sessionTodos.filter((x) => x.templateId !== id); changed();
+    },
     async claimTask(id) {
       const p = writer();
       const t = tasks.find((x) => x.id === id);
       if (!t || (p.role === 'rcm' && t.grabsFor !== 'rcm')) return fail('not_found', 'That task no longer exists.');
-      if ((p.role === 'rcm') !== (t.grabsFor === 'rcm')) fail('forbidden', 'This task is up for grabs for RCMs.');
+      if ((p.role === 'rcm') !== (t.grabsFor === 'rcm')) fail('forbidden', 'This task is up for grabs for SCMs.');
       if (t.assignees.length) fail('invalid', 'Someone already took this task.');
       t.assignees.push({ person: p.id, status: 'todo', doneAt: null, updatedAt: now() });
       taskEvent(p.id, t, 'claimed', p.id, 'todo'); changed();

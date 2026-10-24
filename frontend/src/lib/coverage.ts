@@ -1,5 +1,5 @@
 // Required coverage: for each weekday, a list of time slots that must always have
-// one RCM on duty. Several slots per day leave gaps between them (Aram, Oct 2026).
+// one SCM on duty. Several slots per day leave gaps between them (Aram, Oct 2026).
 import { DAYS_LONG, QUARTER, minLabel, zonedParts, zonedToUtc, type PlainDate } from './time';
 
 export type Slot = { start: number; end: number }; // minutes from local midnight, end exclusive

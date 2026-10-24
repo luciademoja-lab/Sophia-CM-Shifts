@@ -1,5 +1,5 @@
 // Suggested plan for a week: who should cover the required hours that are still open,
-// so that the work is shared fairly and RCMs with little availability get all of it.
+// so that the work is shared fairly and SCMs with little availability get all of it.
 //
 // 1. The required hours are cut into 15-minute slots. Slots already held by a booked
 //    shift or a request waiting for approval count as covered.
@@ -19,7 +19,7 @@ export type PlanInput = {
   required: Interval[];
   /** every shift of the week (any status) */
   shifts: Shift[];
-  /** RCMs who can be suggested, with their availability in the week */
+  /** SCMs who can be suggested, with their availability in the week */
   people: Array<{ id: string; intervals: Interval[] }>;
   /** shortest block to suggest, in minutes (default 30) */
   minMinutes?: number;

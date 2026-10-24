@@ -14,7 +14,7 @@ type HoursProps = {
   shifts: Shift[]; reports: Record<string, Report>; availability: Record<string, Availability>; profiles: Record<string, Profile>;
   me: Profile | null; from: number; to: number; now: number; tz: string; weeklyReports: WeeklyReport[];
   onExport: () => void; onReport: (s: Shift) => void; onDeleteReport: (s: Shift) => Promise<void>;
-  /** each RCM's share of the week's required hours, in minutes */
+  /** each SCM's share of the week's required hours, in minutes */
   share: number;
 };
 
@@ -26,7 +26,7 @@ export function HoursPanel({ shifts, reports, availability, profiles, me, from, 
   const rows = [...hours, ...Object.keys(offered).filter((id) => offered[id] > 0 && profiles[id]?.active && !hours.some((h) => h.owner === id))
     .map((owner) => ({ owner, booked: 0, covering: 0, open: 0, pending: 0, worked: 0, reported: 0 }))]
     .filter((h) => !own || h.owner === me!.id);
-  // RCMs: their own started shifts this week, to add or remove reports
+  // SCMs: their own started shifts this week, to add or remove reports
   const mine = own ? shifts.filter((x) => x.owner === me!.id && x.start >= from && x.start < to && x.start <= now && (x.status === 'booked' || x.status === 'open')).sort((a, b) => a.start - b.start) : [];
   const [armed, setArmed] = useState<string | null>(null);
   return (
@@ -56,7 +56,7 @@ export function HoursPanel({ shifts, reports, availability, profiles, me, from, 
               })}
             </tbody>
           </table>
-          <p className="note">Target is each RCM’s share of the required hours (required hours ÷ number of RCMs). Offered is the availability {own ? 'you' : 'each RCM'} gave for this week. Shifts are the hours booked or assigned. Worked is what {own ? 'you' : 'RCMs'} logged in shift reports.</p>
+          <p className="note">Target is each SCM’s share of the required hours (required hours ÷ number of SCMs). Offered is the availability {own ? 'you' : 'each SCM'} gave for this week. Shifts are the hours booked or assigned. Worked is what {own ? 'you' : 'SCMs'} logged in shift reports.</p>
         </>)}
         {own && (
           <div className="myshifts">
@@ -180,7 +180,7 @@ type PlanProps = {
   onAssignAll: () => Promise<void>;
 };
 
-/** Admins: required hours this week, what each RCM offered, and a balanced suggestion. */
+/** Admins: required hours this week, what each SCM offered, and a balanced suggestion. */
 export function PlanPanel({ plan, profiles, tz, showGhosts, onToggleGhosts, onAssign, onAssignAll }: PlanProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -207,7 +207,7 @@ export function PlanPanel({ plan, profiles, tz, showGhosts, onToggleGhosts, onAs
           <div><span className="eyebrow">Nobody available</span><b className={plan.noOneMinutes ? 'bad' : ''}>{plan.noOneMinutes ? dur(plan.noOneMinutes) : '–'}</b></div>
         </div>
         <table>
-          <thead><tr><th>RCM</th><th className="num">Offered on open hours</th><th className="num">Booked</th><th className="num">Suggested</th><th className="num">Total</th></tr></thead>
+          <thead><tr><th>SCM</th><th className="num">Offered on open hours</th><th className="num">Booked</th><th className="num">Suggested</th><th className="num">Total</th></tr></thead>
           <tbody>
             {plan.perPerson.map((p) => (
               <tr key={p.id}>
@@ -231,7 +231,7 @@ export function PlanPanel({ plan, profiles, tz, showGhosts, onToggleGhosts, onAs
             ))}
           </ul>
         ) : <p className="empty">{open ? 'Nobody is available for the hours still open.' : 'All required hours are covered.'}</p>}
-        <p className="note">The plan shares the open required hours so everyone's total for the week is as even as their availability allows. RCMs available only a few hours get all of them. Suggested shifts are at least 30 minutes.</p>
+        <p className="note">The plan shares the open required hours so everyone's total for the week is as even as their availability allows. SCMs available only a few hours get all of them. Suggested shifts are at least 30 minutes.</p>
         {error && <p className="err" role="alert">{error}</p>}
       </>)}
     </div>

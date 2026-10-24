@@ -13,7 +13,7 @@ type Props = {
   weeklyReports: WeeklyReport[]; taskLog: TaskEvent[];
 };
 
-/** Task changes made by RCMs (claims and moves), newest first. */
+/** Task changes made by SCMs (claims and moves), newest first. */
 export function taskNotifications(taskLog: TaskEvent[], profiles: Record<string, Profile>, seenAt: number) {
   return taskLog.filter((e) => e.actor && profiles[e.actor]?.role === 'rcm').sort((a, b) => b.at - a.at).map((entry) => ({ entry, unread: entry.at > seenAt }));
 }
@@ -23,7 +23,7 @@ export function taskEventText(e: TaskEvent, name: (id: string | null) => string)
   return `${name(e.actor)} ${e.action} “${e.title}”`;
 }
 
-/** Count shown on the header button: what RCMs did since the admin last opened the panel. */
+/** Count shown on the header button: what SCMs did since the admin last opened the panel. */
 export function unreadCount(log: LogEntry[], requests: Shift[], profiles: Record<string, Profile>, me: Profile | null, seenAt: number, weekly: WeeklyReport[] = [], taskLog: TaskEvent[] = []): number {
   void requests; // waiting requests stay listed in the panel, but only new ones light the dot
   return weekly.filter((w) => w.status === 'submitted' && w.submittedAt > seenAt).length
@@ -31,7 +31,7 @@ export function unreadCount(log: LogEntry[], requests: Shift[], profiles: Record
     + taskNotifications(taskLog, profiles, seenAt).filter((n) => n.unread).length;
 }
 
-/** Admins: requests waiting for approval, then changes made by RCMs. */
+/** Admins: requests waiting for approval, then changes made by SCMs. */
 export function NotificationsModal({ repo, me, profiles, tz, log, requests, seenAt, onClose, weeklyReports, taskLog }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -98,8 +98,8 @@ export function NotificationsModal({ repo, me, profiles, tz, log, requests, seen
           </ul>
         )}
       </section>
-      <section aria-label="Changes by RCMs">
-        <h3>Changes by RCMs</h3>
+      <section aria-label="Changes by SCMs">
+        <h3>Changes by SCMs</h3>
         {!items.length ? <p className="empty">Nothing yet.</p> : (
           <ul className="notif">
             {items.map(({ entry, unread }) => (

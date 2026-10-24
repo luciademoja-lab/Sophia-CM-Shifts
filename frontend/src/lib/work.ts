@@ -1,4 +1,4 @@
-// What RCMs report: the kinds of work from the Vik 2.0 guide, time on tasks,
+// What SCMs report: the kinds of work from the Vik 2.0 guide, time on tasks,
 // and the weekly report they send to the admins on Sunday.
 import type { Report, Shift } from './shifts';
 import { addDays, dateValue, dayStartMs, dur, isoWeek, parseDateValue, rangeLabel, shortDate, weekStart } from './time';
@@ -17,7 +17,7 @@ export type TaskTime = { taskId: string; minutes: number };
 export type WeeklyStatus = 'submitted' | 'approved' | 'rejected';
 export type WeeklyReport = {
   id: string; owner: string;
-  /** Monday "YYYY-MM-DD" in the RCM's time zone */
+  /** Monday "YYYY-MM-DD" in the SCM's time zone */
   week: string;
   workedMinutes: number; message: string; status: WeeklyStatus;
   submittedAt: number; decidedBy: string | null; decidedAt: number | null;
@@ -43,10 +43,10 @@ export function validateReport(r: ReportInput): string | null {
   return null;
 }
 
-/** Monday ("YYYY-MM-DD") of the week a moment falls in, in the RCM's time zone. */
+/** Monday ("YYYY-MM-DD") of the week a moment falls in, in the SCM's time zone. */
 export const reportWeek = (ms: number, tz: string): string => dateValue(weekStart(ms, tz));
 
-/** Weekly reports open on the Sunday of that week, at midnight in the RCM's time zone. */
+/** Weekly reports open on the Sunday of that week, at midnight in the SCM's time zone. */
 export function weeklyOpensAt(week: string, tz: string): number {
   return dayStartMs(addDays(parseDateValue(week)!, 6), tz);
 }
@@ -54,7 +54,7 @@ export const canSubmitWeekly = (week: string, tz: string, now: number): boolean 
 
 const inWeek = (s: Shift, owner: string, week: string, tz: string) => s.owner === owner && s.status !== 'covered' && s.status !== 'pending' && reportWeek(s.start, tz) === week;
 
-/** Hours the RCM reported for the week (not the booked ones). */
+/** Hours the SCM reported for the week (not the booked ones). */
 export function weeklyMinutes(owner: string, week: string, tz: string, shifts: Shift[], reports: Record<string, Report>): number {
   return shifts.filter((s) => inWeek(s, owner, week, tz) && reports[s.id]).reduce((m, s) => m + reports[s.id].workedMinutes, 0);
 }
@@ -64,7 +64,7 @@ export type WeeklyInput = {
   shifts: Shift[]; reports: Record<string, Report>; taskTitles: Record<string, string>;
 };
 
-/** The message the RCM checks and sends; built from their shift reports. */
+/** The message the SCM checks and sends; built from their shift reports. */
 export function weeklyMessage(w: WeeklyInput): string {
   const mon = parseDateValue(w.week)!;
   const mine = w.shifts.filter((s) => inWeek(s, w.owner, w.week, w.tz)).sort((a, b) => a.start - b.start);

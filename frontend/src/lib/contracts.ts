@@ -1,5 +1,5 @@
 // The morning list of new Upwork contracts: parsed from what Aram pastes, then split
-// evenly into one task per RCM (one checklist line per poster).
+// evenly into one task per SCM (one checklist line per poster).
 
 export type ContractLine = { label: string; url: string };
 

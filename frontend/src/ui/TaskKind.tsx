@@ -9,7 +9,7 @@ export function TaskKind({ current, onPick }: { current: 'regular' | 'contracts'
       </label>
       <label className={'kind' + (current === 'contracts' ? ' on' : '')}>
         <input type="radio" name="task-kind" checked={current === 'contracts'} onChange={() => onPick('contracts')} />
-        <b>Hiring &amp; onboarding list</b><span>Paste the new Upwork contracts: they are split evenly between the RCMs, one poster per line.</span>
+        <b>Hiring &amp; onboarding list</b><span>Paste the new Upwork contracts: they are split evenly between the SCMs, one poster per line.</span>
       </label>
     </div>
   );

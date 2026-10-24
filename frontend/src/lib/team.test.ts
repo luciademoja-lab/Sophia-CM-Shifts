@@ -13,12 +13,12 @@ describe('team', () => {
     expect(isTestLogin(profiles['test.rcm'])).toBe(true);
     expect(shareRcms(profiles).map((x) => x.id)).toEqual(['kris', 'olizhia', 'rana', 'regina']);
   });
-  it('gives the four RCMs brown, green, purple and blue, and everyone a different colour', () => {
+  it('gives the four SCMs brown, green, purple and blue, and everyone a different colour', () => {
     const c = teamColors(profiles);
     expect(['kris', 'olizhia', 'rana', 'regina'].map((id) => c[id])).toEqual(RCM_COLORS);
     expect(new Set(Object.values(c)).size).toBe(Object.keys(c).length);
   });
-  it('splits the required hours between the RCMs', () => {
+  it('splits the required hours between the SCMs', () => {
     expect(weeklyShare(112 * 60, profiles)).toBe(28 * 60);
     expect(weeklyShare(100, {})).toBe(0);
   });
@@ -34,7 +34,7 @@ describe('booking window (this week and next, Monday–Sunday; on Sunday the wee
     expect(new Date(w.from).toISOString()).toBe('2026-10-19T00:00:00.000Z');
     expect(new Date(w.to).toISOString()).toBe('2026-11-02T00:00:00.000Z');
   });
-  it('opens one more week on Sunday, in the RCM time zone', () => {
+  it('opens one more week on Sunday, in the SCM time zone', () => {
     const w = bookingWindow(at('2026-10-25T10:00:00Z'), 'Europe/Rome'); // Sunday
     expect(new Date(w.to).toISOString()).toBe('2026-11-08T23:00:00.000Z');
     expect(inBookingWindow(at('2026-11-05T10:00:00Z'), at('2026-11-05T12:00:00Z'), at('2026-10-25T10:00:00Z'), 'Europe/Rome')).toBe(true);

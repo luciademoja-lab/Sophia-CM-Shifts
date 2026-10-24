@@ -12,13 +12,13 @@ type Props = {
   shifts: Shift[]; reports: Record<string, Report>; tasks: Task[]; weekly: WeeklyReport | undefined; onClose: () => void;
 };
 
-/** RCMs: from Sunday, check the pre-written summary of their reported hours and send it to the admins. */
+/** SCMs: from Sunday, check the pre-written summary of their reported hours and send it to the admins. */
 export function WeeklyReportModal({ repo, me, profiles, week, now, shifts, reports, tasks, weekly, onClose }: Props) {
   const tz = me.timezone || 'UTC';
   const draft = useMemo(() => weeklyMessage({
     owner: me.id, name: me.fullName, week, tz, shifts, reports, taskTitles: Object.fromEntries(tasks.map((t) => [t.id, t.title])),
   }), [me, week, tz, shifts, reports, tasks]);
-  // follows the reports until the RCM edits it
+  // follows the reports until the SCM edits it
   const [edited, setEdited] = useState<string | null>(weekly && weekly.status !== 'rejected' ? weekly.message : null);
   const message = edited ?? draft;
   const [error, setError] = useState<string | null>(null);

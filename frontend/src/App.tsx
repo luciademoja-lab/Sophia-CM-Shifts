@@ -65,7 +65,7 @@ function SignedIn({ repo: base }: { repo: Repo }) {
     );
   }
 
-  // Step 2 for RCMs: after the time zone, ask for their availability.
+  // Step 2 for SCMs: after the time zone, ask for their availability.
   const myAvailability = snap.me ? snap.availability[snap.me.id] : undefined;
   const noAvailability = !myAvailability || (!Object.keys(myAvailability.week).length && !Object.keys(myAvailability.days).length);
   if (snap.me && snap.me.role === 'rcm' && noAvailability && !skippedAvailability) {

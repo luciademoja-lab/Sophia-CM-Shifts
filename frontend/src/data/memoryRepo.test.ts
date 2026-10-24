@@ -52,7 +52,7 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
     expect(await code(repo.setMyTimezone('Mars/Olympus'))).toBe('invalid');
   });
 
-  it('books, enforces one RCM per slot, and logs', async () => {
+  it('books, enforces one SCM per slot, and logs', async () => {
     await as('regina');
     await repo.bookShift(t0 + 8 * H, t0 + 10 * H);
     await as('kris');
@@ -154,7 +154,7 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
     expect((await repo.load(past - H, now + 48 * H)).reports[id]).toBeUndefined();
   });
 
-  it('keeps each RCM availability: usual week plus day exceptions', async () => {
+  it('keeps each SCM availability: usual week plus day exceptions', async () => {
     await as('nora');
     await repo.setMyTimezone('Europe/Rome');
     expect((await snap()).availability[ids.nora]).toEqual({ tz: 'Europe/Rome', week: {}, days: {} });
@@ -168,7 +168,7 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
     expect(await code(repo.setAvailability({ 1: [{ start: 480, end: 900 }, { start: 840, end: 1080 }] }))).toBe('invalid');
   });
 
-  it('lets RCMs book outside their availability without approval, only this week and next', async () => {
+  it('lets SCMs book outside their availability without approval, only this week and next', async () => {
     await as('nora');
     await repo.setMyTimezone('UTC');
     await repo.setAvailability({ 1: [{ start: 8 * 60, end: 12 * 60 }] }); // t0 is a Monday (next week)
@@ -185,7 +185,7 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
     expect(await code(repo.setAvailability({}, ids.nora))).toBe('forbidden');
   });
 
-  it('sends a request when an RCM books outside the required hours, and lets admins decide', async () => {
+  it('sends a request when an SCM books outside the required hours, and lets admins decide', async () => {
     await as('lucia');
     await repo.setCoverage('UTC', { 1: [{ start: 8 * 60, end: 12 * 60 }] });
     await as('regina');
@@ -208,7 +208,7 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
     expect(s.log.slice(-1)[0].action).toBe('rejected');
   });
 
-  it('locks past days for RCMs and stops asking cover once a shift started', async () => {
+  it('locks past days for SCMs and stops asking cover once a shift started', async () => {
     await as('lucia');
     const past = await repo.bookShift(NOW - 48 * H, NOW - 47 * H, ids.regina);
     const started = await repo.bookShift(NOW - H, NOW + H, ids.regina);
@@ -218,7 +218,7 @@ describe('memoryRepo (demo mode, same rules as the database)', () => {
     expect(await code(repo.askCover(started))).toBe('invalid');
   });
 
-  it('shows RCMs only their own history, lets admins delete entries, and tracks notifications', async () => {
+  it('shows SCMs only their own history, lets admins delete entries, and tracks notifications', async () => {
     await as('regina');
     await repo.bookShift(t0 + 8 * H, t0 + 9 * H);
     await as('kris');
@@ -262,7 +262,7 @@ describe('memoryRepo: reports, weekly reports and tasks', () => {
     for (const p of Object.values((await snap()).profiles)) ids[p.username] = p.id;
   });
 
-  it('validates report kinds and posters, and links time to the RCM\'s own tasks', async () => {
+  it('validates report kinds and posters, and links time to the SCM\'s own tasks', async () => {
     const t = await repo.createTask(task, [ids.regina]);
     const other = await repo.createTask({ ...task, title: 'Kris only' }, [ids.kris]);
     await as('regina');
@@ -301,7 +301,7 @@ describe('memoryRepo: reports, weekly reports and tasks', () => {
   it('runs tasks: visibility, per-person status, claiming and admin-only log', async () => {
     const shared = await repo.createTask(task, [ids.regina, ids.kris]);
     await repo.createTask({ ...task, title: 'Admin' }, [ids.lucia]);
-    expect(await code(repo.createTask({ ...task, title: 'Free' }, []))).toBe('invalid'); // must say RCMs or admins
+    expect(await code(repo.createTask({ ...task, title: 'Free' }, []))).toBe('invalid'); // must say SCMs or admins
     const free = await repo.createTask({ ...task, title: 'Free', grabsFor: 'rcm' }, []);
     const forAdmins = await repo.createTask({ ...task, title: 'For admins', grabsFor: 'admin' }, []);
     expect(await code(repo.claimTask(free))).toBe('forbidden'); // admins take admin tasks only
@@ -332,10 +332,10 @@ describe('memoryRepo: reports, weekly reports and tasks', () => {
     expect((await snap()).tasks.some((t) => t.id === shared)).toBe(false);
   });
 
-  it('shares the morning contracts out evenly and lets each RCM tick their own lines', async () => {
+  it('shares the morning contracts out evenly and lets each SCM tick their own lines', async () => {
     const list = Array.from({ length: 5 }, (_, i) => ({ label: `Poster ${i + 1}`, url: `https://www.upwork.com/ab/c/${i + 1}` }));
     const input = { title: 'New posters', description: 'Steps', priority: 'high' as const, estimateMinutes: 1 };
-    expect(await code(repo.createContractTasks(input, 5, [ids.lucia], list))).toBe('invalid'); // admins are not RCMs
+    expect(await code(repo.createContractTasks(input, 5, [ids.lucia], list))).toBe('invalid'); // admins are not SCMs
     const created = await repo.createContractTasks(input, 5, [ids.regina, ids.kris], list);
     expect(created).toHaveLength(2);
     await as('regina');
@@ -346,5 +346,62 @@ describe('memoryRepo: reports, weekly reports and tasks', () => {
     await as('kris');
     expect(await code(repo.toggleTaskItem(mine[0].items[1].id, true))).toBe('forbidden');
     expect(await code(repo.createContractTasks(input, 5, [ids.kris], list))).toBe('forbidden');
+  });
+});
+
+describe('memoryRepo: Start/End shift and to-do templates', () => {
+  let clock = Date.parse('2026-10-26T10:00:00Z');
+  let repo: Repo;
+  const ids: Record<string, string> = {};
+  const as = async (u: string) => { await repo.signOut(); await repo.signIn(u, 'demo2026pass'); };
+  const snap = () => repo.load(clock - 3 * 24 * H, clock + 3 * 24 * H);
+  const M = 60_000;
+
+  beforeEach(async () => {
+    clock = Date.parse('2026-10-26T10:00:00Z');
+    repo = createMemoryRepo({ users, now: () => clock });
+    await as('lucia');
+    for (const p of Object.values((await snap()).profiles)) ids[p.username] = p.id;
+  });
+
+  it('runs a session: start during the shift, still-working question, timeout without the unanswered minutes', async () => {
+    const shift = await repo.bookShift(clock - H, clock + H, ids.regina);
+    await as('kris');
+    expect(await code(repo.startShift(shift))).toBe('forbidden');
+    await as('regina');
+    const id = await repo.startShift(shift);
+    expect(await code(repo.startShift(shift))).toBe('invalid');
+    expect(await code(repo.confirmShift(id))).toBe('invalid'); // not asked yet
+    clock += H + 10 * M; // shift over: the question is on screen
+    await repo.confirmShift(id); // yes → next question at +30 min
+    clock += 30 * M + 31 * M; // no answer to the second question
+    const s = (await snap()).sessions[0];
+    expect(s.endedBy).toBe('timeout');
+    expect(s.endedAt).toBe(Date.parse('2026-10-26T10:00:00Z') + H + 40 * M); // the time of the unanswered question
+  });
+
+  it('keeps templates for admins, shows SCMs theirs, and refuses overlaps', async () => {
+    const base = { id: '', title: 'Every shift', items: ['Check Zone A'], everyone: true, people: [], repeat: { unit: 'shift' as const, every: 1, from: clock }, slot: null, mode: 'add' as const };
+    const id = await repo.saveTodoTemplate(base);
+    expect(await code(repo.saveTodoTemplate({ ...base, title: 'Again' }))).toBe('invalid');
+    await repo.saveTodoTemplate({ ...base, title: 'Kris', everyone: false, people: [ids.kris], repeat: null, slot: { start: clock, end: clock + H } });
+    await repo.saveTodoTemplate({ ...base, id, title: 'Renamed' });
+    await as('regina');
+    expect((await snap()).todoTemplates.map((t) => t.title)).toEqual(['Renamed']);
+    expect(await code(repo.saveTodoTemplate(base))).toBe('forbidden');
+    await as('lucia');
+    await repo.deleteTodoTemplate(id);
+    expect((await snap()).todoTemplates.map((t) => t.title)).toEqual(['Kris']);
+  });
+
+  it('lets the SCM tick the to-dos of their session', async () => {
+    const t = await repo.saveTodoTemplate({ id: '', title: 'Every shift', items: ['A', 'B'], everyone: true, people: [], repeat: { unit: 'shift', every: 1, from: clock }, slot: null, mode: 'add' });
+    const shift = await repo.bookShift(clock - H, clock + H, ids.regina);
+    await as('regina');
+    const s = await repo.startShift(shift);
+    await repo.toggleSessionTodo(s, t, 1, true);
+    expect((await snap()).sessionTodos).toEqual([{ sessionId: s, templateId: t, item: 1 }]);
+    await as('kris');
+    expect(await code(repo.toggleSessionTodo(s, t, 0, true))).toBe('forbidden');
   });
 });

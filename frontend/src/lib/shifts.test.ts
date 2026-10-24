@@ -24,7 +24,7 @@ describe('activeShifts', () => {
   });
 });
 
-describe('findOverlap (one RCM per slot)', () => {
+describe('findOverlap (one SCM per slot)', () => {
   const list = [sh('a', 'reg', 8, 10), sh('b', 'kri', 12, 14, { status: 'open' })];
   it('finds a clash with a booked or open shift', () => {
     expect(findOverlap(list, t0 + 9 * H, t0 + 11 * H, [])?.id).toBe('a');
@@ -117,7 +117,7 @@ describe('requests, past days and cover', () => {
     expect(canAskCover(sh('a', 'reg', 59, 62), profiles.reg, now)).toBe(false);
     expect(canAskCover(sh('a', 'reg', 70, 72, { coversId: 'z' }), profiles.reg, now)).toBe(false);
   });
-  it('locks shifts of past days for RCMs, in their own time zone, but not for admins', () => {
+  it('locks shifts of past days for SCMs, in their own time zone, but not for admins', () => {
     const tuesday = sh('a', 'reg', 30, 32);
     expect(canChange(tuesday, profiles.reg, now)).toBe(false);
     expect(canChange(tuesday, profiles.luc, now)).toBe(true);
@@ -131,14 +131,14 @@ describe('history and notifications', () => {
   const e = (id: string, actor: string, owner: string, action: LogEntry['action'] = 'booked', at = t0, fromOwner: string | null = null): LogEntry =>
     ({ id, at, actor, owner, action, start: t0, end: t0 + H, fromOwner, shiftId: id });
   const log = [e('1', 'reg', 'reg'), e('2', 'kri', 'kri'), e('3', 'luc', 'reg'), e('4', 'kri', 'kri', 'took', t0, 'reg')];
-  it('shows RCMs only what involves them', () => {
+  it('shows SCMs only what involves them', () => {
     expect(historyFor(log, profiles.reg, null).map((l) => l.id)).toEqual(['1', '3', '4']);
   });
   it('shows admins everything, or one person', () => {
     expect(historyFor(log, profiles.luc, null)).toHaveLength(4);
     expect(historyFor(log, profiles.luc, 'kri').map((l) => l.id)).toEqual(['2', '4']);
   });
-  it('turns RCM changes into notifications for admins, newest first, with unread ones flagged', () => {
+  it('turns SCM changes into notifications for admins, newest first, with unread ones flagged', () => {
     const list = [e('1', 'reg', 'reg', 'booked', t0 + 1), e('2', 'luc', 'reg', 'edited', t0 + 2), e('3', 'kri', 'kri', 'requested', t0 + 3)];
     expect(notificationsFor(list, profiles, profiles.luc, t0 + 1)).toEqual([
       { entry: list[2], unread: true }, { entry: list[0], unread: false },

@@ -64,7 +64,7 @@ describe('logins made by us', () => {
   it('signs in with a username and password', async () => {
     await signIn('lucia');
     await page.getByText('Signed in as Lucia De Mojà').waitFor();
-    expect(await page.getByRole('heading', { name: 'RCM Shifts' }).isVisible()).toBe(true);
+    expect(await page.getByRole('heading', { name: 'SCM Shifts' }).isVisible()).toBe(true);
   });
 
   it('rejects a wrong password', async () => {
@@ -72,7 +72,7 @@ describe('logins made by us', () => {
     await page.getByText('Wrong username or password.').waitFor();
   });
 
-  it('lets an admin create a username and password that the RCM can then use', async () => {
+  it('lets an admin create a username and password that the SCM can then use', async () => {
     await signIn('lucia');
     await page.getByRole('button', { name: 'Team' }).click();
     await page.getByRole('button', { name: 'Create login' }).click();
@@ -90,7 +90,7 @@ describe('logins made by us', () => {
     await page.getByText('Choose your time zone').waitFor();
   });
 
-  it('does not show team management to RCMs', async () => {
+  it('does not show team management to SCMs', async () => {
     await signIn('regina');
     await page.getByText('Signed in as Regina Nemeth').waitFor();
     expect(await page.getByRole('button', { name: 'Team' }).count()).toBe(0);
@@ -111,7 +111,7 @@ describe('read-only access (Max, Adrien)', () => {
   });
 });
 
-describe('time zone chosen by the RCM', () => {
+describe('time zone chosen by the SCM', () => {
   it('asks at first login and shows the board in that zone', async () => {
     await signIn('olizhia');
     await page.getByText('Choose your time zone').waitFor();
@@ -122,7 +122,7 @@ describe('time zone chosen by the RCM', () => {
     await page.getByText('Times shown in your time zone: Asia/Jakarta').waitFor();
   });
 
-  it('shows shifts in the calendar without the RCM time zone', async () => {
+  it('shows shifts in the calendar without the SCM time zone', async () => {
     await signIn('lucia');
     await page.locator('.shift').first().waitFor();
     const blocks = await text('.shift');
@@ -179,14 +179,14 @@ describe('hours worked and shift reports', () => {
     await page.locator('#my-reports, [data-testid="my-reports"]', { hasText: 'Answered Zone A, onboarded 3 posters' }).waitFor();
   }
 
-  it('lets an RCM log hours worked and a report, shown in their hours table', async () => {
+  it('lets an SCM log hours worked and a report, shown in their hours table', async () => {
     await reportAsRegina();
     expect(await page.getByTestId('my-reports').innerText()).toContain('Worked 4h 30m (booked 6h) · Onboarding · Answered Zone A');
     const row = page.locator('#hours tr', { hasText: 'Regina Nemeth' });
     expect(await row.innerText()).toContain('4h 30m');
   });
 
-  it('shows RCMs only their own hours, and no history or required coverage', async () => {
+  it('shows SCMs only their own hours, and no history or required coverage', async () => {
     await signIn('regina');
     await page.locator('.shift').first().waitFor();
     expect(await page.locator('#hours tbody tr').count()).toBe(1);
@@ -212,7 +212,7 @@ describe('hours worked and shift reports', () => {
     await page.getByTestId('my-reports').getByText("Posters' issues (Ana, Bo)").waitFor();
   });
 
-  it('links time to tasks instead of ticking kinds of work, and lets the RCM delete the report', async () => {
+  it('links time to tasks instead of ticking kinds of work, and lets the SCM delete the report', async () => {
     await signIn('regina');
     await page.getByTestId('my-reports').getByRole('button', { name: 'Add report' }).first().click();
     await page.getByRole('button', { name: 'Link task' }).click();
@@ -290,7 +290,7 @@ describe('weekly report', () => {
     expect(msg).toContain('Not reported yet:'); // Tuesday has no report
     await page.getByRole('button', { name: 'Send to admins' }).click();
     await page.getByTestId('overlay').waitFor({ state: 'hidden' });
-    // the week is now locked for the RCM
+    // the week is now locked for the SCM
     await page.getByTestId('my-reports').getByText('Sent in the weekly report').first().waitFor();
     await page.getByRole('button', { name: 'Sign out' }).click();
     await signIn('aram');
@@ -307,7 +307,7 @@ describe('weekly report', () => {
 });
 
 describe('tasks', () => {
-  it('shows RCMs their tasks and the ones up for grabs, never the admins\' tasks', async () => {
+  it('shows SCMs their tasks and the ones up for grabs, never the admins\' tasks', async () => {
     await signIn('regina');
     await page.getByRole('button', { name: 'My tasks' }).click();
     const titles = await page.getByTestId('task-card').allInnerTexts();
@@ -317,7 +317,7 @@ describe('tasks', () => {
     expect(titles.some((t) => t.includes('Welcome message for Zone C'))).toBe(false); // Rana's
   });
 
-  it('lets an RCM take a task up for grabs and move cards (select or drag), and admins see it', async () => {
+  it('lets an SCM take a task up for grabs and move cards (select or drag), and admins see it', async () => {
     await signIn('regina');
     await page.getByRole('button', { name: 'My tasks' }).click();
     await page.getByRole('list', { name: 'Up for grabs' }).getByRole('button', { name: 'Take it' }).click();
@@ -365,7 +365,7 @@ describe('tasks', () => {
     expect(await card.innerText()).toContain('Est. 2h 30m');
   });
 
-  it('asks whether a task without assignees is up for grabs for RCMs or admins', async () => {
+  it('asks whether a task without assignees is up for grabs for SCMs or admins', async () => {
     await signIn('lucia');
     await page.getByRole('button', { name: 'Tasks', exact: true }).click();
     const grabs = page.getByRole('list', { name: 'Up for grabs' });
@@ -373,7 +373,7 @@ describe('tasks', () => {
     await page.getByRole('button', { name: 'New task' }).click();
     await page.getByLabel('Title').fill('Check the bot answers');
     await page.getByRole('button', { name: 'Create task' }).click();
-    await page.getByText('Choose whether this task is up for grabs for RCMs or for admins.').waitFor();
+    await page.getByText('Choose whether this task is up for grabs for SCMs or for admins.').waitFor();
     await page.getByLabel(/^Admins/).check();
     await page.getByRole('button', { name: 'Create task' }).click();
     await grabs.getByTestId('task-card').filter({ hasText: 'Check the bot answers' }).getByRole('button', { name: 'Take it' }).click();
@@ -392,7 +392,7 @@ describe('tasks', () => {
     expect(titles.some((t) => t.includes('Update the pinned links'))).toBe(true);
   });
 
-  it('shares the morning Upwork contracts evenly between the RCMs, leaving the test login out', async () => {
+  it('shares the morning Upwork contracts evenly between the SCMs, leaving the test login out', async () => {
     await signIn('lucia');
     await page.getByRole('button', { name: 'Team' }).click();
     await page.getByRole('button', { name: 'Create login' }).click();
@@ -434,10 +434,10 @@ describe('tasks', () => {
     await card.getByTestId('task-progress').filter({ hasText: '1/3 contracts' }).waitFor();
   });
 
-  it('shows the RCM role page to RCMs only', async () => {
+  it('shows the SCM role page to SCMs only', async () => {
     await signIn('kris');
     await page.getByRole('button', { name: 'My role' }).click();
-    await page.getByRole('heading', { name: 'Recruiter & Community Manager', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Success Community Manager', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Sign out' }).click();
     await signIn('lucia');
     await page.locator('.shift').first().waitFor();
@@ -446,7 +446,7 @@ describe('tasks', () => {
 });
 
 describe('availability and assigning shifts', () => {
-  it('asks a new RCM for availability after the time zone and shows it on the board', async () => {
+  it('asks a new SCM for availability after the time zone and shows it on the board', async () => {
     await signIn('olizhia');
     await page.getByLabel('Your time zone').selectOption('Asia/Jakarta');
     await page.getByRole('button', { name: 'Save time zone' }).click();
@@ -460,10 +460,10 @@ describe('availability and assigning shifts', () => {
     await page.getByText('Times shown in your time zone: Asia/Jakarta').waitFor();
     expect(await page.locator('.avail').count()).toBe(7);
     expect(await page.getByRole('button', { name: 'My availability' }).count()).toBe(1);
-    expect(await page.locator('#view-pick').count()).toBe(0); // RCMs only see their own availability
+    expect(await page.locator('#view-pick').count()).toBe(0); // SCMs only see their own availability
   });
 
-  it('lets an RCM change one day only, e.g. a day off', async () => {
+  it('lets an SCM change one day only, e.g. a day off', async () => {
     await signIn('regina');
     await page.getByRole('button', { name: 'My availability' }).click();
     const firstDay = page.locator('[data-testid^="av-date-"]').first();
@@ -474,7 +474,7 @@ describe('availability and assigning shifts', () => {
     await page.waitForFunction(() => document.querySelectorAll('.avail').length === 5); // usually Mon–Sat, Monday now off
   });
 
-  it('lets an RCM book outside their availability without approval', async () => {
+  it('lets an SCM book outside their availability without approval', async () => {
     await signIn('rana');
     await page.getByRole('button', { name: 'Next week' }).click();
     const p = await slot(3, 10); // 10:00 Istanbul: required, but before Rana's 15:00 start
@@ -487,7 +487,7 @@ describe('availability and assigning shifts', () => {
     expect(await page.locator('.shift.is-pending').count()).toBe(0);
   });
 
-  it('lets RCMs book only this week and next week', async () => {
+  it('lets SCMs book only this week and next week', async () => {
     await page.clock.install({ time: Date.parse('2026-10-23T12:00:00Z') }); // a Friday
     await page.reload();
     await signIn('rana');
@@ -499,7 +499,7 @@ describe('availability and assigning shifts', () => {
     expect(await page.getByRole('button', { name: /Book shift|Send request/ }).isDisabled()).toBe(true);
   });
 
-  it('flashes a warning when an RCM is below their share of the required hours, and admins see who', async () => {
+  it('flashes a warning when an SCM is below their share of the required hours, and admins see who', async () => {
     await signIn('rana');
     expect(await page.getByTestId('shortfall').innerText()).toMatch(/You have booked 5h of your \d+h( \d+m)? this week/);
     expect(await page.locator('#hours thead').innerText()).toContain('TARGET');
@@ -519,7 +519,7 @@ describe('availability and assigning shifts', () => {
     await page.locator('.shift.is-pending').waitFor();
   }
 
-  it('turns an RCM booking outside the required hours into a request they cannot report on yet', async () => {
+  it('turns an SCM booking outside the required hours into a request they cannot report on yet', async () => {
     await requestAsRana();
     await page.locator('.shift.is-pending').click();
     await page.getByTestId('pending-note').waitFor();
@@ -536,7 +536,7 @@ describe('availability and assigning shifts', () => {
     await page.getByTestId('requests').getByText('Rana Barakli asks for').waitFor();
     await page.getByRole('button', { name: 'Approve' }).click();
     await page.getByText('No requests waiting.').waitFor();
-    expect(await page.getByText('Changes by RCMs').count()).toBe(1);
+    expect(await page.getByText('Changes by SCMs').count()).toBe(1);
     await page.getByRole('button', { name: 'Close' }).click();
     await page.getByRole('button', { name: 'Next week' }).click();
     await page.locator('.shift', { hasText: 'Rana Barakli' }).first().waitFor();
@@ -561,15 +561,15 @@ describe('availability and assigning shifts', () => {
     expect(await page.locator('#view-pick option').allInnerTexts()).toEqual(["Admin view: everyone's availability", 'Kris Arévalo', 'Olizhia Mairuhu', 'Rana Barakli', 'Regina Nemeth']);
     const p = await slot(4, 20); // Friday 20:00 Rome
     await page.mouse.click(p.x + 40, p.y);
-    expect(await page.getByLabel('RCM').locator('option').allInnerTexts()).toContain('🔴 Regina Nemeth');
-    await page.getByLabel('RCM').selectOption({ label: '🔴 Regina Nemeth' });
+    expect(await page.getByLabel('SCM').locator('option').allInnerTexts()).toContain('🔴 Regina Nemeth');
+    await page.getByLabel('SCM').selectOption({ label: '🔴 Regina Nemeth' });
     await page.getByText("Outside Regina Nemeth's availability. You can still assign it.").waitFor();
     await page.getByRole('button', { name: 'Book shift' }).click();
     await page.getByTestId('overlay').waitFor({ state: 'hidden' });
     await page.locator('.shift', { hasText: 'Regina Nemeth' }).nth(2).waitFor();
   });
 
-  it('lets admins and viewers switch to one RCM\'s view', async () => {
+  it('lets admins and viewers switch to one SCM\'s view', async () => {
     await signIn('max');
     await page.locator('#view-pick').selectOption({ label: 'Kris Arévalo' });
     await page.locator('.avail').first().waitFor();
@@ -618,7 +618,7 @@ describe('history, plan and past days', () => {
     expect(await page.locator('#plan').count()).toBe(1);
   });
 
-  it('opens a suggestion from the grid with the RCM already picked', async () => {
+  it('opens a suggestion from the grid with the SCM already picked', async () => {
     await signIn('lucia');
     await page.getByRole('button', { name: 'Next week' }).click();
     const g = page.locator('.ghost').first();
@@ -626,10 +626,10 @@ describe('history, plan and past days', () => {
     const label = (await g.getAttribute('aria-label'))!;
     await g.click();
     const who = label.replace('Suggested: ', '').split(',')[0];
-    expect(await page.getByLabel('RCM').locator('option:checked').innerText()).toContain(who);
+    expect(await page.getByLabel('SCM').locator('option:checked').innerText()).toContain(who);
   });
 
-  it('hides plan and notifications from RCMs and viewers', async () => {
+  it('hides plan and notifications from SCMs and viewers', async () => {
     await signIn('regina');
     await page.locator('.shift').first().waitFor();
     expect(await page.locator('#plan').count()).toBe(0);
@@ -677,20 +677,90 @@ describe('live updates and time zones', () => {
   });
 });
 
+describe('start and end shift', () => {
+  // Monday 26 Oct 2026, 09:00 in Rome: Regina's demo shift 07:00–13:00 is on.
+  async function mondayMorning() {
+    await page.clock.install({ time: Date.parse('2026-10-26T08:00:00Z') });
+    await page.reload();
+  }
+  async function writeTemplate() {
+    await signIn('lucia');
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+    await page.getByRole('button', { name: 'To-do templates' }).click();
+    await page.getByRole('button', { name: 'New template' }).click();
+    await page.getByLabel('Title').fill('Every shift');
+    await page.getByLabel('Checklist (one line per to-do)').fill('Check Zone A, B and C\nAnswer DMs');
+    await page.getByRole('button', { name: 'Save template' }).click();
+    await page.getByRole('list', { name: 'Templates' }).getByText('Every shift', { exact: true }).first().waitFor();
+    await page.getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Sign out' }).click();
+  }
+
+  it('lets admins write to-do templates, and refuses two for every shift', async () => {
+    await writeTemplate();
+    await signIn('aram');
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+    await page.getByRole('button', { name: 'To-do templates' }).click();
+    await page.getByRole('button', { name: 'New template' }).click();
+    await page.getByLabel('Title').fill('Again');
+    await page.getByLabel('Checklist (one line per to-do)').fill('x');
+    await page.getByRole('button', { name: 'Save template' }).click();
+    await page.getByText('is already the checklist for every shift', { exact: false }).waitFor();
+    await page.getByLabel('Scheduler on (repeat)').uncheck();
+    await page.getByLabel('Replace it').check();
+    await page.getByRole('button', { name: 'Save template' }).click();
+    await page.getByRole('list', { name: 'Templates' }).getByText('replaces the general list', { exact: false }).waitFor();
+  });
+
+  it('shows Start shift during the shift, the to-do list, then End shift and the report with the clocked time', async () => {
+    await mondayMorning();
+    await writeTemplate();
+    await signIn('regina');
+    const bar = page.getByTestId('shiftbar');
+    await bar.getByRole('button', { name: 'Start shift' }).click();
+    await bar.getByRole('button', { name: 'End shift' }).waitFor();
+    const todos = page.getByTestId('todobox');
+    expect(await todos.getByRole('checkbox').count()).toBe(2);
+    await todos.getByLabel('Answer DMs').check();
+    await todos.locator('li.done').waitFor();
+    await page.clock.fastForward('01:30:00');
+    await bar.getByRole('button', { name: 'End shift' }).click();
+    await page.getByRole('heading', { name: 'Regina Nemeth (you)' }).waitFor(); // the report opens
+    expect(await page.getByLabel('Hours worked').inputValue()).toBe('1');
+    expect(await page.getByLabel('Minutes').inputValue()).toBe('30');
+  });
+
+  it('asks "Are you still working?" after the shift, and ends it without the unanswered 30 minutes', async () => {
+    await mondayMorning();
+    await signIn('regina');
+    await page.getByTestId('shiftbar').getByRole('button', { name: 'Start shift' }).click();
+    await page.getByTestId('shiftbar').getByRole('button', { name: 'End shift' }).waitFor();
+    await page.clock.fastForward('04:05:00'); // 13:05 Rome: the shift is over
+    await page.getByRole('heading', { name: 'Are you still working?' }).waitFor();
+    await page.getByRole('button', { name: 'Yes' }).click();
+    await page.getByRole('heading', { name: 'Are you still working?' }).waitFor({ state: 'detached' });
+    await page.clock.fastForward('00:31:00'); // asked again at 13:35
+    await page.getByRole('heading', { name: 'Are you still working?' }).waitFor();
+    await page.clock.fastForward('00:31:00'); // no answer: ends at 13:35
+    await page.clock.fastForward('00:01:00');
+    await page.getByTestId('shiftbar').waitFor({ state: 'detached' });
+  });
+});
+
 describe('tutorial', () => {
   const firstTime = () => page.evaluate(() => localStorage.removeItem('rcm-tour-skip-all'));
 
-  it('starts by itself at the first sign-in and walks an RCM through a typical week, page by page', async () => {
+  it('starts by itself at the first sign-in and walks an SCM through a typical week, page by page', async () => {
     await firstTime();
     await signIn('regina');
     const tour = page.getByTestId('tour');
-    await tour.getByRole('heading', { name: 'Welcome to RCM Shifts' }).waitFor();
-    expect(await tour.innerText()).toContain('1 / 11');
+    await tour.getByRole('heading', { name: 'Welcome to SCM Shifts' }).waitFor();
+    expect(await tour.innerText()).toContain('1 / 12');
     await tour.getByRole('button', { name: 'Next' }).click(); // time zone
     await tour.getByRole('button', { name: 'Next' }).click(); // availability
     await tour.getByRole('heading', { name: '1. Say when you can work' }).waitFor();
     await page.locator('.tour-hole').waitFor(); // the spotlight is on the button
-    for (let k = 0; k < 6; k++) await tour.getByRole('button', { name: 'Next' }).click();
+    for (let k = 0; k < 7; k++) await tour.getByRole('button', { name: 'Next' }).click();
     await tour.getByRole('heading', { name: '5. Work through your tasks' }).waitFor();
     await page.locator('.kanban').waitFor(); // it switched to My tasks
     await tour.getByRole('button', { name: 'Back' }).click();
@@ -703,7 +773,7 @@ describe('tutorial', () => {
     await page.locator('.shift').first().waitFor();
     expect(await page.getByTestId('tour').count()).toBe(0);
     await page.getByRole('button', { name: 'Tutorial' }).click();
-    await page.getByTestId('tour').getByRole('heading', { name: 'Welcome to RCM Shifts' }).waitFor();
+    await page.getByTestId('tour').getByRole('heading', { name: 'Welcome to SCM Shifts' }).waitFor();
   });
 
   it('has its own steps for admins, ending on the Tutorial button', async () => {
@@ -735,7 +805,7 @@ describe('booking (unchanged from the original board)', () => {
     expect(await page.locator('.shift', { hasText: '16:00–18:15' }).innerText()).toContain('Rana Barakli');
   });
 
-  it('refuses a second RCM in the same slot', async () => {
+  it('refuses a second SCM in the same slot', async () => {
     await signIn('rana');
     await page.locator('.shift', { hasText: 'Regina Nemeth' }).first().waitFor();
     const p = await slot(0, 8, 30); // 08:30 Istanbul, inside Regina's shift

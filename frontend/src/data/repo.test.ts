@@ -42,3 +42,10 @@ describe('loadErrorText', () => {
     expect(_let(new Error('Failed to fetch'))).toBe('Could not load the schedule (Failed to fetch). Check your connection and reload the page.');
   });
 });
+
+describe('role name in database messages', () => {
+  it('shows SCM where the database still says SCM', () => {
+    expect(_pde('RCM_INVALID: that person has no active SCM login').message).toBe('That person has no active SCM login.');
+    expect(_pde('RCM_INVALID: contracts can only go to active SCMs').message).toBe('Contracts can only go to active SCMs.');
+  });
+});

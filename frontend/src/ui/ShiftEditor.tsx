@@ -61,9 +61,9 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, avai
   const target = owner;
   const range = isOpen ? s : r;
   const outside = !!range && !availableFor(target, range);
-  // RCMs booking outside the required hours send a request; outside their availability is fine.
+  // SCMs booking outside the required hours send a request; outside their availability is fine.
   const asRequest = me.role === 'rcm' && !isOpen && !!r && !isRequiredRange(coverage, r.start, r.end);
-  // RCMs book this week and next only (Sunday opens the week after)
+  // SCMs book this week and next only (Sunday opens the week after)
   const outOfWindow = me.role === 'rcm' && editable && !!r && !inBookingWindow(r.start, r.end, now, me.timezone || 'UTC');
   const outsideMsg = target === me.id
     ? 'This is outside your availability. You can still book it.'
@@ -77,7 +77,7 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, avai
   const checkFree = (range: { start: number; end: number } | null, ignore: string[]) => {
     if (!range) { setError('Pick a valid day.'); return false; }
     const o = findOverlap(shifts, range.start, range.end, ignore);
-    if (o) { setError(`This overlaps ${name(o.owner)}'s shift, ${rangeLabel(o.start, o.end, tz)}. Only one RCM per slot.`); return false; }
+    if (o) { setError(`This overlaps ${name(o.owner)}'s shift, ${rangeLabel(o.start, o.end, tz)}. Only one SCM per slot.`); return false; }
     return true;
   };
 
@@ -99,7 +99,7 @@ export function ShiftEditor({ ctx, repo, tz, me, profiles, shifts, reports, avai
       </div>
 
       {(isAdmin && (editable || isOpen)) ? (
-        <Field label={isOpen ? 'Who takes this shift' : 'RCM'} htmlFor="f-owner">
+        <Field label={isOpen ? 'Who takes this shift' : 'SCM'} htmlFor="f-owner">
           <select id="f-owner" value={owner} onChange={(e) => setOwner(e.target.value)}>
             {people.filter((p) => !isOpen || p.id !== s!.owner).map((p) => <option key={p.id} value={p.id}>{range ? `${dot(availableFor(p.id, range))} ${p.fullName}` : p.fullName}</option>)}
           </select>

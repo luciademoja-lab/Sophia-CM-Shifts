@@ -1,11 +1,11 @@
-// RCM availability: a usual week (slots per weekday, in the RCM's own time zone)
+// SCM availability: a usual week (slots per weekday, in the SCM's own time zone)
 // plus exceptions for specific dates that replace that day's usual slots.
 import type { CoverageDays, Slot, Weekday } from './coverage';
 import { addDays, dateOf, dateValue, zonedParts, zonedToUtc, type PlainDate } from './time';
 import type { Interval } from './coverage';
 
 export type Availability = {
-  /** the RCM's own time zone; without it nothing can be placed on the board */
+  /** the SCM's own time zone; without it nothing can be placed on the board */
   tz: string | null;
   /** usual week: weekday 1 = Monday ... 7 = Sunday */
   week: CoverageDays;

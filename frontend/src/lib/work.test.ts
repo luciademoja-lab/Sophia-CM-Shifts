@@ -41,11 +41,11 @@ const report = (shiftId: string, workedMinutes: number, extra: Partial<Report> =
   ({ shiftId, owner: 'r', workedMinutes, notes: '', workTypes: ['onboarding'], posters: '', tasks: [], updatedAt: 0, updatedBy: 'r', ...extra });
 
 describe('weekly report timing', () => {
-  it('puts a shift in the week of its start, in the RCM time zone', () => {
+  it('puts a shift in the week of its start, in the SCM time zone', () => {
     expect(reportWeek(Date.parse('2026-10-26T05:00:00Z'), 'Europe/Budapest')).toBe('2026-10-26');
     expect(reportWeek(Date.parse('2026-10-26T03:00:00Z'), 'America/Bogota')).toBe('2026-10-19'); // still Sunday night there
   });
-  it('opens on Sunday in the RCM time zone and stays open afterwards', () => {
+  it('opens on Sunday in the SCM time zone and stays open afterwards', () => {
     expect(weeklyOpensAt('2026-10-26', 'Europe/Budapest')).toBe(Date.parse('2026-10-31T23:00:00Z'));
     expect(canSubmitWeekly('2026-10-26', 'Europe/Budapest', Date.parse('2026-10-31T22:59:00Z'))).toBe(false);
     expect(canSubmitWeekly('2026-10-26', 'Europe/Budapest', Date.parse('2026-10-31T23:00:00Z'))).toBe(true);

@@ -17,7 +17,7 @@ Then tick the poster in this task.`;
 
 const isTestLogin = (p: Profile) => /test/i.test(`${p.username} ${p.fullName}`);
 
-/** Admins: paste the morning's Upwork contracts and share them out evenly, one task per RCM. */
+/** Admins: paste the morning's Upwork contracts and share them out evenly, one task per SCM. */
 export function ContractsModal({ repo, profiles, tz, onClose, onRegular }: { repo: Repo; profiles: Record<string, Profile>; tz: string; onClose: () => void; onRegular?: () => void }) {
   const rcms = Object.values(profiles).filter((p) => p.active && p.role === 'rcm').sort((a, b) => a.fullName.localeCompare(b.fullName));
   const [people, setPeople] = useState<string[]>(rcms.filter((p) => !isTestLogin(p)).map((p) => p.id));
@@ -40,7 +40,7 @@ export function ContractsModal({ repo, profiles, tz, onClose, onRegular }: { rep
   }
   async function create() {
     if (!contracts.length) { setError('Paste at least one contract link.'); return; }
-    if (!chosen.length) { setError('Pick at least one RCM.'); return; }
+    if (!chosen.length) { setError('Pick at least one SCM.'); return; }
     setBusy(true); setError(null);
     try {
       await repo.createContractTasks({ title, description, priority, estimateMinutes: minutes }, minutes, chosen.map((p) => p.id), contracts);

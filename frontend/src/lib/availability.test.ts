@@ -12,7 +12,7 @@ const regina: Availability = {
   days: {},
 };
 
-describe('availabilityIntervals (usual week, in the RCM time zone)', () => {
+describe('availabilityIntervals (usual week, in the SCM time zone)', () => {
   it('turns the usual week into instants, in her own time zone', () => {
     const iv = availabilityIntervals(regina, utc('2026-10-19T00:00:00Z'), utc('2026-10-20T00:00:00Z'));
     expect(iv).toEqual([{ start: utc('2026-10-19T06:00:00Z'), end: utc('2026-10-19T10:00:00Z') }]); // 08–12 Budapest (UTC+2)

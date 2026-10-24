@@ -8,7 +8,7 @@ const ROW = 22, SLOTS = 96;
 
 export type NewShiftRequest = { newStart: number; newMinutes: number };
 
-/** Availability drawn behind the shifts: one person's band, or a thin lane per RCM (admin view). */
+/** Availability drawn behind the shifts: one person's band, or a thin lane per SCM (admin view). */
 export type Overlay = { mode: 'single' | 'lanes'; people: Array<{ id: string; name: string; color: string; intervals: Interval[] }> };
 const LANE = 6;
 

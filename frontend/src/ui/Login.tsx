@@ -18,8 +18,8 @@ export function Login({ repo }: { repo: Repo }) {
   return (
     <div className="auth">
       <div>
-        <div className="eyebrow">Vik Studios · Recruiter &amp; Community Managers</div>
-        <h1>RCM Shifts</h1>
+        <div className="eyebrow">Vik Studios · Success Community Managers</div>
+        <h1>SCM Shifts</h1>
       </div>
       <form className="card" onSubmit={submit}>
         <Field label="Username" htmlFor="login-user">

@@ -6,6 +6,8 @@ import type { Availability } from '../lib/availability';
 import type { LogEntry, Profile, Report, Shift } from '../lib/shifts';
 import type { WeeklyReport, WorkType } from '../lib/work';
 import type { Task, TaskEvent, TaskTimeRow } from '../lib/tasks';
+import type { ShiftSession } from '../lib/session';
+import type { RepeatUnit, TodoTemplate } from '../lib/todos';
 import { loginEmail } from '../../../backend/supabase/functions/_shared/username.ts';
 import { parseDbError, RepoError, signInError, type Repo, type Snapshot } from './repo';
 
@@ -34,8 +36,10 @@ const toWeekly = (r: WeeklyRow): WeeklyReport => ({
   submittedAt: Date.parse(r.submitted_at), decidedBy: r.decided_by, decidedAt: r.decided_at ? Date.parse(r.decided_at) : null,
 });
 const iso = (ms: number) => new Date(ms).toISOString();
+type SessionRow = { id: string; shift_id: string; owner: string; started_at: string; ended_at: string | null; check_due_at: string; ended_by: ShiftSession['endedBy'] };
+type TemplateRow = { id: string; title: string; items: string[]; everyone: boolean; people: string[] | null; repeat_unit: RepeatUnit | null; repeat_every: number | null; repeat_from: string | null; slot_start: string | null; slot_end: string | null; mode: TodoTemplate['mode'] };
 export const REALTIME_TABLES = ['shifts', 'shift_log', 'coverage', 'profiles', 'shift_reports', 'availability', 'availability_days',
-  'notification_seen', 'tasks', 'task_assignees', 'task_log', 'report_tasks', 'weekly_reports', 'task_items'];
+  'notification_seen', 'tasks', 'task_assignees', 'task_log', 'report_tasks', 'weekly_reports', 'task_items', 'shift_sessions', 'session_todos', 'todo_templates'];
 
 function check<T>(res: { data: T; error: { message: string } | null }): T {
   if (res.error) throw parseDbError(res.error.message);
@@ -76,7 +80,8 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
     },
     async load(from, to): Promise<Snapshot> {
       const uid = (await sb.auth.getSession()).data.session?.user.id ?? null;
-      const [p, s, l, c, aw, ad, ns, rq, tk, ta, tl, rt, wr, ti] = await Promise.all([
+      if (uid) await sb.rpc('close_stale_sessions'); // ends sessions nobody confirmed for 30 minutes
+      const [p, s, l, c, aw, ad, ns, rq, tk, ta, tl, rt, wr, ti, ss, st, tt] = await Promise.all([
         sb.from('profiles').select('id, username, full_name, role, timezone, active'),
         sb.from('shifts').select('id, owner, starts_at, ends_at, status, covers_id').lt('starts_at', iso(to)).gt('ends_at', iso(from)).order('starts_at'),
         sb.from('shift_log').select('id, at, actor, owner, action, starts_at, ends_at, from_owner, shift_id').order('at', { ascending: false }).limit(80),
@@ -91,6 +96,9 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
         sb.from('report_tasks').select('shift_id, task_id, owner, minutes'),
         sb.from('weekly_reports').select('id, owner, week, worked_minutes, message, status, submitted_at, decided_by, decided_at').order('week', { ascending: false }).limit(200),
         sb.from('task_items').select('id, task_id, position, label, url, done_at, done_by').order('position'),
+        sb.from('shift_sessions').select('id, shift_id, owner, started_at, ended_at, check_due_at, ended_by').gte('started_at', iso(from - 7 * 86_400_000)).order('started_at'),
+        sb.from('session_todos').select('session_id, template_id, item'),
+        sb.from('todo_templates').select('id, title, items, everyone, people, repeat_unit, repeat_every, repeat_from, slot_start, slot_end, mode').order('title'),
       ]);
       const profiles = Object.fromEntries((check(p) as ProfileRow[]).map((r) => [r.id, toProfile(r)]));
       const shifts = (check(s) as ShiftRow[]).map(toShift);
@@ -134,6 +142,16 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
         notificationsSeenAt: seenRow ? Date.parse(seenRow.seen_at) : 0,
         requests: (check(rq) as ShiftRow[]).map(toShift),
         tasks, taskTime: [...sums.values()], taskLog, weeklyReports: (check(wr) as WeeklyRow[]).map(toWeekly),
+        sessions: (check(ss) as SessionRow[]).map((r) => ({
+          id: r.id, shiftId: r.shift_id, owner: r.owner, startedAt: Date.parse(r.started_at), endedAt: r.ended_at ? Date.parse(r.ended_at) : null,
+          checkDueAt: Date.parse(r.check_due_at), endedBy: r.ended_by,
+        })),
+        sessionTodos: (check(st) as Array<{ session_id: string; template_id: string; item: number }>).map((r) => ({ sessionId: r.session_id, templateId: r.template_id, item: r.item })),
+        todoTemplates: (check(tt) as TemplateRow[]).map((r) => ({
+          id: r.id, title: r.title, items: r.items, everyone: r.everyone, people: r.people || [], mode: r.mode,
+          repeat: r.repeat_unit ? { unit: r.repeat_unit, every: r.repeat_every ?? 1, from: Date.parse(r.repeat_from!) } : null,
+          slot: r.slot_start && r.slot_end ? { start: Date.parse(r.slot_start), end: Date.parse(r.slot_end) } : null,
+        })),
       };
     },
     subscribe(onChange) {
@@ -181,6 +199,21 @@ export function createSupabaseRepo(url: string, anonKey: string): Repo {
         p_items: items.map((i) => ({ label: i.label, url: i.url })),
       })) as string[];
     },
+    async startShift(shiftId) { return check(await sb.rpc('start_shift_session', { p_shift: shiftId })) as string; },
+    async confirmShift(id) { check(await sb.rpc('confirm_shift_session', { p_id: id })); },
+    async endShift(id) { check(await sb.rpc('end_shift_session', { p_id: id })); },
+    async toggleSessionTodo(sessionId, templateId, item, done) {
+      check(await sb.rpc('toggle_session_todo', { p_session: sessionId, p_template: templateId, p_item: item, p_done: done }));
+    },
+    async saveTodoTemplate(t) {
+      const p = {
+        title: t.title, items: t.items, everyone: t.everyone, people: t.people, mode: t.mode,
+        repeat: t.repeat ? { unit: t.repeat.unit, every: t.repeat.every, from: iso(t.repeat.from) } : null,
+        slot: t.slot ? { start: iso(t.slot.start), end: iso(t.slot.end) } : null,
+      };
+      return check(await sb.rpc('save_todo_template', { p_id: t.id || null, p })) as string;
+    },
+    async deleteTodoTemplate(id) { check(await sb.rpc('delete_todo_template', { p_id: id })); },
     async toggleTaskItem(id, done) { check(await sb.rpc('toggle_task_item', { p_item: id, p_done: done })); },
     async setAvailability(week, owner) {
       check(await sb.rpc('set_availability', { p_days: week, p_owner: owner ?? null }));

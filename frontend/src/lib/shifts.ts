@@ -1,4 +1,4 @@
-// Shifts: the availability RCMs book on the board, plus the rules the board enforces.
+// Shifts: the availability SCMs book on the board, plus the rules the board enforces.
 import { HOUR, dateOf, dateValue, hm, rangeLabel } from './time';
 import type { TaskTime, WorkType } from './work';
 
@@ -13,14 +13,14 @@ export type Shift = {
   /** set on the shift created when someone takes over an open shift */
   coversId: string | null;
 };
-/** admin = Lucia, Aram; rcm = recruiters; viewer = read-only (Max, Adrien) */
+/** admin = Lucia, Aram; rcm = SCMs, Success Community Managers (the key stays "rcm" in the database); viewer = read-only (Max, Adrien) */
 export type Role = 'admin' | 'rcm' | 'viewer';
 export type Profile = {
   id: string;
   username: string;
   fullName: string;
   role: Role;
-  /** chosen by the RCM at first login; null until then */
+  /** chosen by the SCM at first login; null until then */
   timezone: string | null;
   active: boolean;
 };
@@ -37,7 +37,7 @@ export type LogEntry = {
   /** the shift this entry is about (a deleted shift keeps its id here) */
   shiftId: string | null;
 };
-/** What the RCM did in a shift and the hours actually worked (may differ from the booking). */
+/** What the SCM did in a shift and the hours actually worked (may differ from the booking). */
 export type Report = {
   shiftId: string;
   owner: string;
@@ -106,7 +106,7 @@ export function canAskCover(s: Shift, me: Profile | null, now: number): boolean 
   return canManage(s, me) && s.status === 'booked' && !s.coversId && s.start > now;
 }
 
-/** RCMs cannot change or delete a shift of a past day (in their own time zone); admins can. */
+/** SCMs cannot change or delete a shift of a past day (in their own time zone); admins can. */
 export function canChange(s: Shift, me: Profile | null, now: number): boolean {
   if (!canManage(s, me)) return false;
   if (me!.role === 'admin') return true;
@@ -116,14 +116,14 @@ export function canChange(s: Shift, me: Profile | null, now: number): boolean {
 
 const involves = (l: LogEntry, id: string) => l.actor === id || l.owner === id || l.fromOwner === id;
 
-/** RCMs see what involves them; admins and viewers see everything, or one person. */
+/** SCMs see what involves them; admins and viewers see everything, or one person. */
 export function historyFor(log: LogEntry[], me: Profile | null, person: string | null): LogEntry[] {
   if (!me) return [];
   if (me.role === 'rcm') return log.filter((l) => involves(l, me.id));
   return person ? log.filter((l) => involves(l, person)) : log;
 }
 
-/** For admins: changes made by RCMs, newest first; unread = after they last looked. */
+/** For admins: changes made by SCMs, newest first; unread = after they last looked. */
 export function notificationsFor(log: LogEntry[], profiles: Record<string, Profile>, me: Profile | null, seenAt: number): Array<{ entry: LogEntry; unread: boolean }> {
   if (!me || me.role !== 'admin') return [];
   return log.filter((l) => profiles[l.actor]?.role === 'rcm').sort((a, b) => b.at - a.at).map((entry) => ({ entry, unread: entry.at > seenAt }));

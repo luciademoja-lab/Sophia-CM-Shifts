@@ -41,7 +41,7 @@ describe('suggestPlan', () => {
     expect(p.suggestions).toHaveLength(2);
   });
 
-  it('gives an RCM who is free only one day all of that day (40 h week example)', () => {
+  it('gives an SCM who is free only one day all of that day (40 h week example)', () => {
     const p = suggestPlan({
       required: weekdays(9, 17), // 40 h
       shifts: [],

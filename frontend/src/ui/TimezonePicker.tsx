@@ -3,7 +3,7 @@ import { allTimeZones, browserTimeZone, hm, tzLabel } from '../lib/time';
 import { errorText } from './errors';
 import { Field } from './Modal';
 
-/** The RCM picks their own time zone at first login (and can change it later). */
+/** The SCM picks their own time zone at first login (and can change it later). */
 export function TimezonePicker({ current, onSave, onCancel }: { current: string | null; onSave: (tz: string) => Promise<void>; onCancel?: () => void }) {
   const zones = useMemo(() => allTimeZones(), []);
   const [tz, setTz] = useState(current || browserTimeZone());

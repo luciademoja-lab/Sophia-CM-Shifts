@@ -8,7 +8,7 @@ import { Field, Modal } from './Modal';
 
 type View = { kind: 'list' } | { kind: 'create' } | { kind: 'created'; username: string; password: string } | { kind: 'reset'; person: Profile } | { kind: 'reset-done'; person: Profile; password: string };
 
-/** Admins create usernames and passwords to give out to the RCMs. */
+/** Admins create usernames and passwords to give out to the SCMs. */
 export function TeamModal({ repo, me, profiles, onClose }: { repo: Repo; me: Profile; profiles: Record<string, Profile>; onClose: () => void }) {
   const [view, setView] = useState<View>({ kind: 'list' });
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +33,7 @@ export function TeamModal({ repo, me, profiles, onClose }: { repo: Repo; me: Pro
           <tbody>
             {people.map((p) => (
               <tr key={p.id}>
-                <td>{p.fullName} {p.role === 'admin' && <span className="pill admin">admin</span>}{p.role === 'viewer' && <span className="pill">read-only</span>} {!p.active && <span className="pill off">inactive</span>}<span className="sub mono">{p.username}</span></td>
+                <td>{p.fullName} {p.role === 'admin' && <span className="pill admin">admin</span>}{p.role === 'rcm' && <span className="pill">SCM</span>}{p.role === 'viewer' && <span className="pill">read-only</span>} {!p.active && <span className="pill off">inactive</span>}<span className="sub mono">{p.username}</span></td>
                 <td>{p.timezone ? tzLabel(p.timezone, Date.now()) : <span className="muted">Not chosen yet</span>}</td>
                 <td>
                   <span className="inline" style={{ justifyContent: 'flex-end' }}>
@@ -54,7 +54,7 @@ export function TeamModal({ repo, me, profiles, onClose }: { repo: Repo; me: Pro
       {view.kind === 'create' && <CreateLogin repo={repo} onBack={() => go({ kind: 'list' })} onCreated={(username, password) => go({ kind: 'created', username, password })} />}
 
       {view.kind === 'created' && (<>
-        <div><div className="eyebrow">Team</div><h2>Login created</h2><p className="note">Send these to the RCM by Slack direct message. The password is not shown again.</p></div>
+        <div><div className="eyebrow">Team</div><h2>Login created</h2><p className="note">Send these to the SCM by Slack direct message. The password is not shown again.</p></div>
         <Credentials username={view.username} password={view.password} />
         <div className="actions"><button className="btn primary" type="button" onClick={() => go({ kind: 'list' })}>Done</button></div>
       </>)}
@@ -73,7 +73,7 @@ export function TeamModal({ repo, me, profiles, onClose }: { repo: Repo; me: Pro
 }
 
 function Credentials({ username, password }: { username: string; password: string }) {
-  const text = `RCM Shifts: ${location.origin}\nUsername: ${username}\nPassword: ${password}`;
+  const text = `SCM Shifts: ${location.origin}\nUsername: ${username}\nPassword: ${password}`;
   const [copied, setCopied] = useState(false);
   return (<>
     <div className="creds" data-testid="credentials">{text}</div>
@@ -100,13 +100,13 @@ function CreateLogin({ repo, onBack, onCreated }: { repo: Repo; onBack: () => vo
   }
 
   return (<>
-    <div><div className="eyebrow">Team</div><h2>Create login</h2><p className="note">The RCM chooses their time zone the first time they sign in.</p></div>
+    <div><div className="eyebrow">Team</div><h2>Create login</h2><p className="note">The SCM chooses their time zone the first time they sign in.</p></div>
     <Field label="Full name" htmlFor="nl-name"><input id="nl-name" type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} maxLength={80} /></Field>
     <div className="fields two">
       <Field label="Username" htmlFor="nl-user"><input id="nl-user" type="text" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. regina" /></Field>
       <Field label="Role" htmlFor="nl-role">
         <select id="nl-role" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-          <option value="rcm">RCM</option><option value="admin">Admin</option><option value="viewer">Read-only (e.g. Max, Adrien)</option>
+          <option value="rcm">SCM – Success Community Manager</option><option value="admin">Admin</option><option value="viewer">Read-only (e.g. Max, Adrien)</option>
         </select>
       </Field>
     </div>
